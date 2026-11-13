@@ -30,6 +30,20 @@ def duplicate_conflict(duplicates: list[PropertySale]) -> HTTPException:
     )
 
 
+def complete_sale_payload(payload: dict, create: bool = False) -> dict:
+    """数据库仍保留必要列，片段资讯用明确占位值落库，不强迫用户先补全。"""
+    normalized = dict(payload)
+    if create or "project_name" in normalized:
+        normalized["project_name"] = (str(normalized.get("project_name") or "").strip() or "待补充项目")[:100]
+    if create or "district" in normalized:
+        normalized["district"] = (str(normalized.get("district") or "").strip() or "待确认区域")[:50]
+    if create or "deal_date" in normalized:
+        normalized["deal_date"] = normalized.get("deal_date") or date.today()
+    if create or "deal_status" in normalized:
+        normalized["deal_status"] = (str(normalized.get("deal_status") or "").strip() or "信息待补充")[:20]
+    return normalized
+
+
 @router.get("")
 def list_sales(
     db: DbSession,
@@ -100,7 +114,7 @@ def create_sale(
     force: bool = False,
 ):
     """重复录入返回 409 与候选记录；前端确认后才可带 force=true 写入。"""
-    payload = body.model_dump()
+    payload = complete_sale_payload(body.model_dump(), create=True)
     duplicates = find_duplicates(db, PropertySale, payload)
     if duplicates and not force:
         raise duplicate_conflict(duplicates)
@@ -134,7 +148,7 @@ def update_sale(
     """局部更新；并发写入采用服务端最后更新时间覆盖规则。"""
     record = get_record_or_404(db, PropertySale, record_id, device)
     ensure_can_edit(record, device)
-    payload = body.model_dump(exclude_unset=True)
+    payload = complete_sale_payload(body.model_dump(exclude_unset=True))
     merged = {column.name: getattr(record, column.name) for column in PropertySale.__table__.columns}
     merged.update(payload)
     duplicates = find_duplicates(db, PropertySale, merged, exclude_id=record_id)

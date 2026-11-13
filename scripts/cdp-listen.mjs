@@ -3,7 +3,8 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 const [, , targetFragment, action = "none", waitMs = "2500"] = process.argv;
-const targets = await fetch("http://127.0.0.1:9222/json/list").then((response) => response.json());
+const cdpPort = process.env.CDP_PORT || "9222";
+const targets = await fetch(`http://127.0.0.1:${cdpPort}/json/list`).then((response) => response.json());
 const target = targets.find((item) => item.type === "page" && item.url.includes(targetFragment));
 if (!target) throw new Error(`No page target found for ${targetFragment}`);
 

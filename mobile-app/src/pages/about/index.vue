@@ -1,111 +1,372 @@
 <template>
-  <view class="about-page">
+  <view class="about-page app-page">
     <PageHeader title="关于" fallback="/pages/profile/index" />
 
-    <view class="about-content">
-      <text class="product-name">商办信息资产库</text>
-      <text class="version">团队内部 MVP 1.0.0</text>
+    <scroll-view class="about-scroll" scroll-y>
+      <view class="about-hero">
+        <view class="brand-mark"><Boxes :size="30" :stroke-width="1.7" /></view>
+        <text class="hero-kicker">COMMERCIAL ASSET LIBRARY</text>
+        <text class="hero-title">商办信息资产库</text>
+        <text class="hero-subtitle">先完整收下，再慢慢整理成判断。</text>
+        <view class="version-tag"><text>内部原型</text><text>1.1.0</text></view>
+      </view>
 
-      <view class="info-card">
-        <view class="info-row">
-          <text class="info-label">数据范围</text>
-          <text class="info-value">上海商办租赁与买卖业务</text>
+      <view class="capability-strip">
+        <view class="capability-item">
+          <view class="capability-icon active"><FileText :size="18" /></view>
+          <text class="capability-title">文档提取</text>
+          <text class="capability-state">可用</text>
         </view>
-        <view class="info-row">
-          <text class="info-label">隐私规则</text>
-          <text class="info-value">工作记录默认私有，个人灵感仅本人可见</text>
+        <view class="capability-item">
+          <view class="capability-icon active"><Mic :size="18" /></view>
+          <text class="capability-title">语音输入</text>
+          <text class="capability-state">按环境</text>
         </view>
-        <view class="info-row">
-          <text class="info-label">删除规则</text>
-          <text class="info-value">软删除，回收站保留 7 天</text>
-        </view>
-        <view class="info-row">
-          <text class="info-label">同步规则</text>
-          <text class="info-value">离线写入本地，联网后自动增量同步</text>
+        <view class="capability-item">
+          <view class="capability-icon pending"><ScanText :size="18" /></view>
+          <text class="capability-title">图片 OCR</text>
+          <text class="capability-state pending-text">待接入</text>
         </view>
       </view>
 
-      <view class="notice-card">
-        <text class="notice-title">原生能力说明</text>
-        <text class="notice-text">系统通知和语音转写依赖安装包中的原生插件。未接入真实 OCR/ASR 服务时，图片和音频不会伪造识别文字。</text>
+      <view class="about-section">
+        <text class="section-kicker">HOW IT WORKS</text>
+        <text class="section-title">它怎么处理你的信息</text>
+        <view class="rule-list">
+          <view class="rule-row">
+            <view class="rule-symbol"><ShieldCheck :size="18" /></view>
+            <view class="rule-copy">
+              <text class="rule-title">先保存原件</text>
+              <text class="rule-note">图片、PDF、表格、文档、音视频和其他格式都会按原文件存放，再尝试提取正文。</text>
+            </view>
+          </view>
+          <view class="rule-row">
+            <view class="rule-symbol"><ScanText :size="18" /></view>
+            <view class="rule-copy">
+              <text class="rule-title">能识别的先整理</text>
+              <text class="rule-note">TXT、CSV、XLSX、DOCX、PPTX、带文本层 PDF 等可提取可检索正文。</text>
+            </view>
+          </view>
+          <view class="rule-row">
+            <view class="rule-symbol"><CloudCheck :size="18" /></view>
+            <view class="rule-copy">
+              <text class="rule-title">离线先收，联网再同步</text>
+              <text class="rule-note">网络中断时记录和待上传材料保存在本机，恢复网络后进入同步队列。</text>
+            </view>
+          </view>
+        </view>
       </view>
-    </view>
+
+      <view class="about-section">
+        <text class="section-kicker">PRIVACY & RULES</text>
+        <text class="section-title">数据与权限</text>
+        <view class="info-table">
+          <view class="info-row"><text class="info-label">业务范围</text><text class="info-value">上海商办买卖、企业租赁、工作记录与个人灵感</text></view>
+          <view class="info-row"><text class="info-label">隐私规则</text><text class="info-value">工作记录默认仅本人可见，个人灵感只属于本人</text></view>
+          <view class="info-row"><text class="info-label">删除规则</text><text class="info-value">软删除，进入回收站后保留 7 天</text></view>
+          <view class="info-row"><text class="info-label">文件上限</text><text class="info-value">单份原件最多 50 MB</text></view>
+          <view class="info-row"><text class="info-label">备份内容</text><text class="info-value">业务数据、资料元数据、原件与图片缩略图</text></view>
+        </view>
+      </view>
+
+      <view class="about-section boundary-section">
+        <text class="section-kicker">CURRENT LIMITS</text>
+        <text class="section-title">当前边界</text>
+        <view class="boundary-list">
+          <view class="boundary-row"><view class="dot"></view><text>后端文字理解使用本地规则，不调用第三方大模型，结果需要人工核对。</text></view>
+          <view class="boundary-row"><view class="dot"></view><text>图片和扫描 PDF 目前只保存原件与缩略图，不伪造 OCR 文字。</text></view>
+          <view class="boundary-row"><view class="dot"></view><text>H5 语音依赖 Edge/Chrome 浏览器识别；App 语音依赖原生语音模块。</text></view>
+          <view class="boundary-row"><view class="dot"></view><text>{{ capabilityNotice }}</text></view>
+        </view>
+      </view>
+
+      <view class="about-footer">
+        <text>ASSET LIBRARY · INTERNAL USE</text>
+        <text>把零散的信息，留给下一次判断。</text>
+      </view>
+      <view class="bottom-space"></view>
+    </scroll-view>
   </view>
 </template>
 
 <script setup>
+import { computed, ref } from "vue";
+import { onLoad } from "@dcloudio/uni-app";
+import {
+  Boxes,
+  CloudCheck,
+  FileText,
+  Mic,
+  ScanText,
+  ShieldCheck,
+} from "@lucide/vue";
 import PageHeader from "../../components/PageHeader.vue";
+import { request } from "../../services/api";
+
+const capabilities = ref(null);
+const capabilityNotice = computed(
+  () => capabilities.value?.notice || "第三方 OCR/ASR 服务未配置；当前能力以原件存放和本地规则整理为主。",
+);
+
+onLoad(async () => {
+  try {
+    capabilities.value = await request("/ai/capabilities");
+  } catch (error) {
+    capabilities.value = null;
+  }
+});
 </script>
 
 <style scoped>
 .about-page {
-  width: 100vw;
-  min-height: 100vh;
-  padding-bottom: env(safe-area-inset-bottom);
-  background: var(--page-bg);
+  height: 100vh;
+  overflow: hidden;
 }
-.about-content {
-  padding: 8px 16px 24px;
+.about-scroll {
+  height: calc(100vh - 62px - env(safe-area-inset-top));
 }
-.product-name {
+.about-hero {
+  position: relative;
+  margin: 4px 16px 0;
+  padding: 20px;
+  overflow: hidden;
+  border-radius: 13px;
+  background: var(--ink);
+  color: #ffffff;
+  box-shadow: 0 12px 26px rgba(22, 34, 31, 0.17);
+}
+.about-hero::after {
+  content: "";
+  position: absolute;
+  right: -38px;
+  bottom: -58px;
+  width: 150px;
+  height: 150px;
+  border: 1px solid rgba(132, 221, 201, 0.18);
+  border-radius: 50%;
+}
+.brand-mark {
+  width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(157, 236, 218, 0.31);
+  border-radius: 14px;
+  background: rgba(127, 223, 202, 0.1);
+  color: #c6f8ec;
+}
+.hero-kicker {
+  display: block;
+  margin-top: 18px;
+  color: #8ed8c8;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.11em;
+}
+.hero-title {
+  display: block;
+  margin-top: 7px;
+  font-size: 25px;
+  font-weight: 760;
+  line-height: 32px;
+}
+.hero-subtitle {
+  display: block;
+  margin-top: 5px;
+  color: #b6cbc4;
+  font-size: 10px;
+  line-height: 17px;
+}
+.version-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding: 4px 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #c4d8d1;
+  font-size: 8px;
+}
+.version-tag text + text {
+  padding-left: 6px;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+}
+.capability-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 12px 16px 0;
+  padding: 13px 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.capability-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-left: 1px solid var(--border);
+}
+.capability-item:first-child {
+  border-left: 0;
+}
+.capability-icon {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+}
+.capability-icon.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.capability-icon.pending {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.capability-title {
+  margin-top: 7px;
+  color: var(--text-primary);
+  font-size: 9px;
+  font-weight: 650;
+}
+.capability-state {
+  margin-top: 2px;
+  color: var(--accent);
+  font-size: 8px;
+}
+.pending-text {
+  color: var(--warning);
+}
+.about-section {
+  margin: 24px 16px 0;
+}
+.section-kicker {
+  display: block;
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: 0.11em;
+}
+.section-title {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 730;
+  line-height: 24px;
+}
+.rule-list {
+  margin-top: 9px;
+  border-top: 1px solid var(--border);
+}
+.rule-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--border);
+}
+.rule-symbol {
+  width: 35px;
+  height: 35px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--accent);
+}
+.rule-copy {
+  flex: 1;
+  min-width: 0;
+}
+.rule-title {
   display: block;
   color: var(--text-primary);
-  font-size: 24px;
-  font-weight: 600;
-}
-.version {
-  display: block;
-  margin-top: 8px;
-  color: var(--text-muted);
   font-size: 12px;
+  font-weight: 650;
 }
-.info-card,
-.notice-card {
-  margin-top: 24px;
-  padding: 16px;
-  border-radius: 8px;
+.rule-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 9px;
+  line-height: 16px;
+}
+.info-table {
+  margin-top: 9px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
   background: var(--surface);
 }
 .info-row {
   display: flex;
   align-items: flex-start;
-  padding: 11px 0;
+  gap: 11px;
+  padding: 11px 12px;
   border-bottom: 1px solid var(--border);
 }
-.info-row:first-child {
-  padding-top: 0;
-}
 .info-row:last-child {
-  padding-bottom: 0;
   border-bottom: 0;
 }
 .info-label {
-  width: 76px;
+  width: 64px;
   flex: none;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 19px;
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 16px;
 }
 .info-value {
   flex: 1;
   color: var(--text-primary);
-  font-size: 12px;
-  line-height: 19px;
+  font-size: 9px;
+  line-height: 16px;
 }
-.notice-card {
-  background: var(--warning-bg);
+.boundary-section {
+  margin-bottom: 0;
 }
-.notice-title {
-  display: block;
-  color: var(--warning);
-  font-size: 13px;
-  font-weight: 600;
+.boundary-list {
+  margin-top: 9px;
+  padding: 12px;
+  border: 1px solid #ead7c5;
+  border-radius: 9px;
+  background: #fffaf4;
 }
-.notice-text {
-  display: block;
-  margin-top: 8px;
+.boundary-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 5px 0;
   color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 20px;
+  font-size: 9px;
+  line-height: 16px;
+}
+.dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+.about-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 26px 16px 10px;
+  color: var(--text-muted);
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+.bottom-space {
+  height: calc(18px + env(safe-area-inset-bottom));
 }
 </style>

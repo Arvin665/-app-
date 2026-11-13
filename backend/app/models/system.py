@@ -95,3 +95,31 @@ class Attachment(Base):
         DateTime, nullable=False, default=datetime.now, server_default=func.now()
     )
     data_status: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1, server_default="1")
+
+
+class Material(Base):
+    """独立资料资产；可先归档，再关联具体业务记录。"""
+
+    __tablename__ = "sys_material"
+    __table_args__ = MYSQL_OPTIONS
+
+    material_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    module: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    record_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    mime_type: Mapped[Optional[str]] = mapped_column(String(100))
+    file_size: Mapped[Optional[int]] = mapped_column(BigInteger)
+    file_url: Mapped[str] = mapped_column(String(255), nullable=False)
+    thumbnail_url: Mapped[Optional[str]] = mapped_column(String(255))
+    extraction_status: Mapped[str] = mapped_column(String(20), nullable=False, default="stored", server_default="stored")
+    extracted_text: Mapped[Optional[str]] = mapped_column(Text)
+    extracted_data: Mapped[Optional[str]] = mapped_column(Text)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text)
+    extraction_note: Mapped[Optional[str]] = mapped_column(Text)
+    uploader_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    upload_time: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now, server_default=func.now()
+    )
+    data_status: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1, server_default="1")

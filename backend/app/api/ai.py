@@ -4,8 +4,15 @@ from typing import Optional
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.api.deps import CurrentDevice
-from app.schemas.ai import AIExtractResponse, CommandRequest, CommandResponse
-from app.services.ai_extract import apply_command, extract_response
+from app.schemas.ai import (
+    AIExtractResponse,
+    CommandRequest,
+    CommandResponse,
+    FieldParseRequest,
+    FieldParseResponse,
+)
+from app.services.ai_extract import apply_command, extract_response, parse_field_value
+from app.services.material_extract import extract_material
 
 router = APIRouter(prefix="/ai", tags=["智能识别"])
 
@@ -25,13 +32,11 @@ async def extract_material(
 
     provider_note = ""
     if file is not None and file.filename:
-        suffix = Path(file.filename).suffix.lower()
-        if suffix in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
-            provider_note = f"已接收图片 {file.filename}；mock OCR 不生成文字，需同时填写文本或切换真实 OCR 服务。"
-        elif suffix in {".mp3", ".wav", ".m4a", ".aac", ".ogg"}:
-            provider_note = f"已接收音频 {file.filename}；mock ASR 不生成转写，需同时填写文本或切换真实 ASR 服务。"
-        else:
-            provider_note = f"已接收文件 {file.filename}；当前 mock 接口仅解析文本。"
+        content = await file.read()
+        extraction = extract_material(content, file.filename, file.content_type, module)
+        provider_note = f"文件 {file.filename}：{extraction['note']}"
+        if extraction["text"]:
+            text = f"{text or ''}\n{extraction['text']}".strip()
 
     response = extract_response(text or "", module, provider_note)
     return AIExtractResponse(**response)
@@ -45,6 +50,16 @@ def apply_natural_language_command(body: CommandRequest, device: CurrentDevice):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return CommandResponse(**result)
+
+
+@router.post("/parse-field", response_model=FieldParseResponse)
+def parse_single_field(body: FieldParseRequest, device: CurrentDevice):
+    """字段内麦克风使用：语音只说值，由后端按字段类型结构化。"""
+    try:
+        result = parse_field_value(body.module, body.field, body.text.strip())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return FieldParseResponse(**result)
 
 
 @router.get("/capabilities")

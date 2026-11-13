@@ -6,7 +6,7 @@ __pycache__/
 venv/
 .env
 backend/uploads/
-backend/test_artifacts/
+backend/tests/test_artifacts/
 
 # Node
 node_modules/

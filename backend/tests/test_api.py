@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import json
 import zipfile
+from datetime import date, timedelta
 
 # 测试必须在导入应用前设置环境变量，确保使用独立 SQLite 文件而不触碰开发数据库。
 ARTIFACTS = Path(__file__).parent / "test_artifacts"
@@ -18,8 +19,9 @@ os.environ["UPLOAD_DIR"] = str(ARTIFACTS / "uploads")
 os.environ["PUBLIC_BASE_URL"] = "http://testserver"
 
 from fastapi.testclient import TestClient  # noqa: E402
-from openpyxl import load_workbook  # noqa: E402
+from openpyxl import Workbook, load_workbook  # noqa: E402
 from io import BytesIO  # noqa: E402
+from PIL import Image  # noqa: E402
 
 from app.main import app  # noqa: E402
 
@@ -37,6 +39,28 @@ def bind(client: TestClient, device_id: str, invite_code: str):
         json={"invite_code": invite_code, "device_id": device_id, "device_name": "测试设备"},
     )
     assert response.status_code == 200, response.text
+    return response.json()
+
+
+def upload_material(
+    client: TestClient,
+    device_id: str,
+    module: str,
+    file_name: str,
+    content: bytes,
+    content_type: str,
+    record_id: str | None = None,
+):
+    data = {"module": module}
+    if record_id:
+        data["record_id"] = record_id
+    response = client.post(
+        "/api/v1/materials/upload",
+        headers=headers(device_id),
+        data=data,
+        files={"file": (file_name, content, content_type)},
+    )
+    assert response.status_code == 201, response.text
     return response.json()
 
 
@@ -73,6 +97,76 @@ def test_full_business_flow():
         assert member_view.status_code == 200
         assert member_view.json()["commission_remark"] is None
 
+        empty_sale = client.post("/api/v1/sales", headers=headers(ADMIN_ID), json={})
+        assert empty_sale.status_code == 201, empty_sale.text
+        assert empty_sale.json()["project_name"] == "待补充项目"
+        assert empty_sale.json()["district"] == "待确认区域"
+
+        text_content = "陆家嘴项目底层资料：交易总价3.2亿，买方为示例企业。".encode("utf-8")
+        text_material = upload_material(
+            client, ADMIN_ID, "sale", "陆家嘴底层资料.txt", text_content, "text/plain"
+        )
+        assert text_material["extraction_status"] == "extracted"
+        assert "交易总价3.2亿" in text_material["extracted_text"]
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "交易清单"
+        sheet.append(["项目", "总价"])
+        sheet.append(["陆家嘴示例", 32000])
+        xlsx_buffer = BytesIO()
+        workbook.save(xlsx_buffer)
+        xlsx_material = upload_material(
+            client,
+            ADMIN_ID,
+            "sale",
+            "交易清单.xlsx",
+            xlsx_buffer.getvalue(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        assert xlsx_material["extraction_status"] == "extracted"
+        assert "陆家嘴示例" in xlsx_material["extracted_text"]
+
+        image_buffer = BytesIO()
+        Image.new("RGB", (32, 32), "white").save(image_buffer, format="PNG")
+        image_material = upload_material(
+            client, ADMIN_ID, "sale", "现场照片.png", image_buffer.getvalue(), "image/png"
+        )
+        assert image_material["extraction_status"] == "unavailable"
+        assert image_material["thumbnail_url"]
+
+        linked = client.post(
+            f"/api/v1/materials/{text_material['material_id']}/link",
+            headers=headers(ADMIN_ID),
+            json={"record_id": sale["record_id"]},
+        )
+        assert linked.status_code == 200, linked.text
+        assert linked.json()["record_id"] == sale["record_id"]
+
+        material_list = client.get(
+            "/api/v1/materials?module=sale&keyword=底层资料&page_size=20",
+            headers=headers(ADMIN_ID),
+        )
+        assert material_list.status_code == 200, material_list.text
+        assert any(item["material_id"] == text_material["material_id"] for item in material_list.json()["items"])
+        member_material = client.get(
+            f"/api/v1/materials/{text_material['material_id']}",
+            headers=headers(MEMBER_ID),
+        )
+        assert member_material.status_code == 200
+        assert "交易总价3.2亿" in member_material.json()["extracted_text"]
+
+        disposable = upload_material(
+            client, ADMIN_ID, "sale", "待删除.txt", "临时资料".encode("utf-8"), "text/plain"
+        )
+        deleted_material = client.delete(
+            f"/api/v1/materials/{disposable['material_id']}", headers=headers(ADMIN_ID)
+        )
+        assert deleted_material.status_code == 200
+        assert client.get(
+            f"/api/v1/materials/{disposable['material_id']}", headers=headers(ADMIN_ID)
+        ).status_code == 404
+
         forbidden_update = client.patch(
             f"/api/v1/sales/{sale['record_id']}",
             headers=headers(MEMBER_ID),
@@ -104,6 +198,19 @@ def test_full_business_flow():
         assert admin_work.status_code == 200
         assert all(item["content"] != "成员私有记录" for item in admin_work.json()["items"])
 
+        private_work_material = upload_material(
+            client,
+            MEMBER_ID,
+            "work",
+            "成员私有跟进.txt",
+            "这条资料跟随私有工作记录隔离。".encode("utf-8"),
+            "text/plain",
+            private_work.json()["record_id"],
+        )
+        assert client.get(
+            f"/api/v1/materials/{private_work_material['material_id']}", headers=headers(ADMIN_ID)
+        ).status_code == 404
+
         shared_work = client.patch(
             f"/api/v1/work-logs/{private_work.json()['record_id']}",
             headers=headers(MEMBER_ID),
@@ -112,6 +219,9 @@ def test_full_business_flow():
         assert shared_work.status_code == 200
         admin_work = client.get("/api/v1/work-logs", headers=headers(ADMIN_ID))
         assert any(item["content"] == "成员私有记录" for item in admin_work.json()["items"])
+        assert client.get(
+            f"/api/v1/materials/{private_work_material['material_id']}", headers=headers(ADMIN_ID)
+        ).status_code == 200
 
         plan = client.post(
             "/api/v1/work-logs",
@@ -201,10 +311,23 @@ def test_full_business_flow():
             json={"record_time": "2026-11-13T11:00:00", "content": "备份不得包含的成员私有灵感"},
         )
         assert member_private_inspiration.status_code == 201
+        private_backup_material = upload_material(
+            client,
+            MEMBER_ID,
+            "work",
+            "备份排除的私有资料.txt",
+            "成员私有资料不得进入管理员备份。".encode("utf-8"),
+            "text/plain",
+            member_only_private.json()["record_id"],
+        )
 
         # 在隐私数据写入后重新生成备份，才能真实验证过滤范围。
         backup = client.get("/api/v1/admin/backup", headers=headers(ADMIN_ID))
         assert backup.status_code == 200
+        with zipfile.ZipFile(BytesIO(backup.content)) as package:
+            backup_names = package.namelist()
+            assert any(name.startswith("uploads/materials/sale/") for name in backup_names)
+            assert any(name.endswith(".thumb.jpg") for name in backup_names)
 
         # 备份接口不能借管理员身份绕过私有工作记录与个人灵感隔离。
         with zipfile.ZipFile(BytesIO(backup.content)) as package:
@@ -213,6 +336,14 @@ def test_full_business_flow():
         backup_inspiration_contents = {
             row["content"] for row in backup_data["tables"]["biz_personal_inspiration"]
         }
+        backup_material_ids = {
+            row["material_id"] for row in backup_data["tables"]["sys_material"]
+        }
+        assert text_material["material_id"] in backup_material_ids
+        assert xlsx_material["material_id"] in backup_material_ids
+        assert image_material["material_id"] in backup_material_ids
+        assert private_backup_material["material_id"] not in backup_material_ids
+        assert backup_data["version"] == 2
         assert "备份不得包含的成员私有内容" not in backup_work_contents
         assert "管理员私有灵感" in backup_inspiration_contents
         assert "备份不得包含的成员私有灵感" not in backup_inspiration_contents
@@ -244,6 +375,38 @@ def test_ai_command_updates_only_named_field():
         assert work_fields["record_type"] == "待办计划"
         assert work_fields["ext_field_4"] == "10:00"
         assert work_fields["content"] == "整理客户清单"
+
+        parsed_date = client.post(
+            "/api/v1/ai/parse-field",
+            headers=headers(ADMIN_ID),
+            json={"module": "sale", "field": "deal_date", "text": "明天下午三点"},
+        )
+        assert parsed_date.status_code == 200, parsed_date.text
+        assert parsed_date.json()["value"] == (date.today() + timedelta(days=1)).isoformat()
+
+        parsed_time = client.post(
+            "/api/v1/ai/parse-field",
+            headers=headers(ADMIN_ID),
+            json={"module": "work", "field": "ext_field_4", "text": "下午三点半"},
+        )
+        assert parsed_time.status_code == 200, parsed_time.text
+        assert parsed_time.json()["value"] == "15:30"
+
+        parsed_price = client.post(
+            "/api/v1/ai/parse-field",
+            headers=headers(ADMIN_ID),
+            json={"module": "sale", "field": "deal_total_price", "text": "3.2亿"},
+        )
+        assert parsed_price.status_code == 200, parsed_price.text
+        assert parsed_price.json()["value"] == "32000.00"
+
+        parsed_status = client.post(
+            "/api/v1/ai/parse-field",
+            headers=headers(ADMIN_ID),
+            json={"module": "sale", "field": "deal_status", "text": "已经签约"},
+        )
+        assert parsed_status.status_code == 200, parsed_status.text
+        assert parsed_status.json()["value"] == "已签约"
 
         work_filter_records = [
             {"record_type": "每日心得", "record_date": "2025-01-10", "content": "DATE-FILTER-WORK-outside-a"},

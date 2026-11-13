@@ -24,3 +24,17 @@ class CommandResponse(BaseModel):
     changed_fields: list[str]
     confidence: dict[str, float]
     note: Optional[str] = None
+
+
+class FieldParseRequest(BaseModel):
+    module: str
+    field: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+
+
+class FieldParseResponse(BaseModel):
+    module: str
+    field: str
+    value: Any = None
+    confidence: float
+    note: Optional[str] = None

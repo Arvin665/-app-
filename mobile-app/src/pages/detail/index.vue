@@ -1,90 +1,172 @@
 <template>
-  <view class="detail-page">
-    <PageHeader title="记录详情" fallback="/pages/history/index">
+  <view class="detail-page app-page" :class="`tone-${moduleKey}`">
+    <PageHeader title="记录详情" :fallback="`/pages/history/index?module=${moduleKey}`">
       <template #actions>
-        <text class="header-action" @tap="editRecord">编辑</text>
+        <view v-if="record?.can_edit" class="header-action pressable" @tap="editRecord">补充编辑</view>
       </template>
     </PageHeader>
 
     <scroll-view class="detail-scroll" scroll-y>
-      <view v-if="record" class="content">
-        <view class="hero-card">
+      <view v-if="record" class="detail-content">
+        <view class="record-hero">
+          <view class="hero-head">
+            <ModuleMark :module-key="moduleKey" size="lg" />
+            <view class="hero-meta">
+              <text class="hero-kicker">{{ config.visual.kicker }}</text>
+              <text class="hero-date">{{ businessDate || "日期待补充" }}</text>
+            </view>
+          </view>
           <text class="record-title">{{ title }}</text>
-          <text class="record-subtitle">{{ config.name }} · {{ businessDate }} · {{ subtitle }}</text>
+          <view class="hero-badges">
+            <text class="hero-badge">{{ subtitle || "信息待补充" }}</text>
+            <text v-if="moduleKey === 'work'" class="hero-badge">{{ record.is_shared ? "团队共享" : "仅本人可见" }}</text>
+            <text v-if="record.tags" class="hero-badge">{{ record.tags }}</text>
+          </view>
+          <view class="hero-actions">
+            <button v-if="record.can_edit" class="edit-button pressable" @tap="editRecord">
+              <Pencil :size="16" />
+              <text>继续补充</text>
+            </button>
+            <button class="add-file-button pressable" @tap="chooseMaterial">
+              <Paperclip :size="17" />
+              <text>添加资料</text>
+            </button>
+          </view>
+        </view>
+
+        <view class="section-card">
+          <view class="section-head">
+            <view>
+              <text class="section-kicker">RECORD FIELDS</text>
+              <text class="section-title">记录内容</text>
+            </view>
+            <text class="field-total">{{ visibleFields.length }} 项</text>
+          </view>
           <view class="field-list">
             <view v-for="field in visibleFields" :key="field.key" class="field-row">
               <text class="field-label">{{ field.label }}</text>
-              <text class="field-value" :class="{ muted: !hasValue(record[field.key]) }">
-                {{ displayValue(field) || "未填写" }}
-              </text>
+              <text class="field-value" :class="{ muted: !hasValue(record[field.key]) }">{{ displayValue(field) }}</text>
             </view>
           </view>
         </view>
 
-        <view v-if="attachmentList.length" class="section-card">
-          <text class="section-title">附件</text>
-          <view v-for="file in attachmentList" :key="file.attach_id" class="attachment-row" @tap="openAttachment(file)">
-            <view class="attachment-icon">{{ file.file_type === "image" ? "图" : "文" }}</view>
-            <view class="attachment-info">
-              <text class="attachment-name">{{ file.file_name }}</text>
-              <text class="attachment-meta">{{ formatSize(file.file_size) }} · {{ file.upload_time?.slice(0, 10) }}</text>
+        <view class="section-card material-card">
+          <view class="section-head">
+            <view>
+              <text class="section-kicker">FILES & MATERIALS</text>
+              <text class="section-title">相关资料</text>
             </view>
-            <text class="attachment-open">预览</text>
+            <view class="add-more pressable" @tap="chooseMaterial"><Plus :size="14" /><text>添加</text></view>
+          </view>
+
+          <view v-if="materials.length" class="material-list">
+            <MaterialRow v-for="item in materials" :key="item.material_id" :material="item" compact @open="openMaterialPage" />
+          </view>
+          <view v-else class="material-empty pressable" @tap="chooseMaterial">
+            <view class="material-empty-icon"><FilePlus2 :size="22" /></view>
+            <view class="material-empty-copy">
+              <text class="material-empty-title">给这条记录补上现场材料</text>
+              <text class="material-empty-note">照片、PDF、表格或其他文件都可以</text>
+            </view>
+            <ChevronRight :size="16" />
+          </view>
+        </view>
+
+        <view v-if="attachmentList.length" class="section-card legacy-card">
+          <view class="section-head">
+            <view>
+              <text class="section-kicker">LEGACY FILES</text>
+              <text class="section-title">早期附件</text>
+            </view>
+            <text class="field-total">{{ attachmentList.length }} 份</text>
+          </view>
+          <view v-for="file in attachmentList" :key="file.attach_id" class="legacy-row pressable" @tap="openAttachment(file)">
+            <view class="legacy-icon"><FileText :size="17" /></view>
+            <view class="legacy-copy">
+              <text class="legacy-name">{{ file.file_name }}</text>
+              <text class="legacy-meta">{{ formatFileSize(file.file_size) }} · {{ formatDate(file.upload_time) }}</text>
+            </view>
+            <ExternalLink :size="15" class="legacy-arrow" />
           </view>
         </view>
 
         <view v-if="canShowShare" class="section-card share-card">
-          <view>
-            <text class="share-title">团队共享</text>
-            <text class="share-desc">{{ record.is_shared ? "当前记录已对团队可见" : "当前记录仅本人可见" }}</text>
+          <view class="share-copy">
+            <view class="share-icon"><UsersRound :size="19" /></view>
+            <view>
+              <text class="share-title">团队共享</text>
+              <text class="share-desc">{{ record.is_shared ? "团队可以查看这条工作记录" : "目前只有你能看到" }}</text>
+            </view>
           </view>
-          <switch :checked="Boolean(record.is_shared)" color="#165DFF" @change="toggleShared" />
+          <switch :checked="Boolean(record.is_shared)" color="#0b7565" :disabled="!record.can_edit" @change="toggleShared" />
         </view>
 
-        <view class="bottom-actions safe-bottom">
-          <button class="secondary-button edit-button" @tap="editRecord">编辑记录</button>
-          <button class="text-button delete-button" @tap="deleteRecord">删除</button>
+        <view v-if="record.can_edit" class="record-actions">
+          <button class="secondary-action pressable" @tap="editRecord"><Pencil :size="16" /><text>编辑记录</text></button>
+          <button class="delete-action pressable" @tap="deleteRecord"><Trash2 :size="16" /><text>删除</text></button>
         </view>
+        <view class="page-space"></view>
       </view>
-      <view v-else class="empty-state">{{ loading ? "加载中..." : "记录不存在或无权限访问" }}</view>
-      <view class="scroll-space"></view>
+
+      <view v-else class="loading-page">
+        <LoaderCircle v-if="loading" :size="24" class="spin" />
+        <text>{{ loading ? "正在打开这条记录" : "记录不存在或没有访问权限" }}</text>
+      </view>
     </scroll-view>
   </view>
 </template>
 
 <script setup>
 import { computed, ref } from "vue";
-import { onLoad } from "@dcloudio/uni-app";
+import { onLoad, onShow } from "@dcloudio/uni-app";
+import {
+  ChevronRight,
+  ExternalLink,
+  FilePlus2,
+  FileText,
+  LoaderCircle,
+  Paperclip,
+  Pencil,
+  Plus,
+  Trash2,
+  UsersRound,
+} from "@lucide/vue";
 import PageHeader from "../../components/PageHeader.vue";
+import ModuleMark from "../../components/ModuleMark.vue";
+import MaterialRow from "../../components/MaterialRow.vue";
+import { modules, recordDate, recordTitle } from "../../data/modules";
 import { request } from "../../services/api";
 import { getCachedRecords } from "../../services/localDb";
+import { chooseFiles, chooseImages, listMaterials, uploadMaterial } from "../../services/material";
 import { getSession } from "../../services/session";
-import { modules, recordDate, recordTitle } from "../../data/modules";
 
 const moduleKey = ref("sale");
-const config = computed(() => modules[moduleKey.value]);
+const recordId = ref("");
 const record = ref(null);
+const materials = ref([]);
 const attachmentList = ref([]);
 const loading = ref(true);
-const recordId = ref("");
+const uploading = ref(false);
+const config = computed(() => modules[moduleKey.value]);
 const statusMap = { 0: "未做", 1: "正在做", 2: "已做好", 3: "计划搁置" };
 
 const title = computed(() => (record.value ? recordTitle(moduleKey.value, record.value) : ""));
 const businessDate = computed(() => (record.value ? recordDate(moduleKey.value, record.value) : ""));
 const subtitle = computed(() => {
   if (!record.value) return "";
-  if (moduleKey.value === "sale") return record.value.deal_status || "";
-  if (moduleKey.value === "lease") return record.value.lease_type || "";
-  if (moduleKey.value === "work") return record.value.record_type || "";
-  return record.value.inspiration_type || "";
+  if (moduleKey.value === "sale") return record.value.deal_status;
+  if (moduleKey.value === "lease") return record.value.lease_type;
+  if (moduleKey.value === "work") return record.value.record_type;
+  return record.value.inspiration_type;
 });
-const visibleFields = computed(() =>
-  config.value.fields.filter((field) => {
+const visibleFields = computed(() => {
+  if (!record.value) return [];
+  return config.value.fields.filter((field) => {
     if (field.adminOnly && getSession()?.role_level !== 1) return false;
-    if (field.key === "commission_remark" && !record.value?.[field.key]) return false;
-    return field.core || hasValue(record.value?.[field.key]);
-  }),
-);
+    if (field.key === "commission_remark" && !record.value[field.key]) return false;
+    return field.core || hasValue(record.value[field.key]);
+  });
+});
 const canShowShare = computed(() => moduleKey.value === "work" && record.value?.record_type !== "每日复盘");
 
 function hasValue(value) {
@@ -93,86 +175,136 @@ function hasValue(value) {
 
 function displayValue(field) {
   const value = record.value?.[field.key];
+  if (!hasValue(value)) return "未填写";
   if (field.key === "is_shared") return Number(value) ? "团队共享" : "仅本人可见";
   if (field.key === "ext_field_5") return statusMap[Number(value)] || "未做";
   if (field.type === "switch") return Number(value) ? "是" : "否";
-  return value ? `${value}${field.unit ? ` ${field.unit}` : ""}` : "";
+  if (field.type === "datetime") return String(value).replace("T", " ").slice(0, 16);
+  if (field.type === "date") return String(value).slice(0, 10);
+  return `${value}${field.unit ? ` ${field.unit}` : ""}`;
 }
 
-function formatSize(bytes) {
-  if (!bytes) return "0 B";
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+function formatFileSize(bytes) {
+  const value = Number(bytes || 0);
+  if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatDate(value) {
+  return String(value || "").replace("T", " ").slice(0, 16);
 }
 
 async function loadDetail() {
   loading.value = true;
   try {
     record.value = await request(`/${config.value.endpoint}/${recordId.value}`);
-    try {
-      const attachmentResponse = await request(
-        `/attachments?biz_type=${moduleKey.value}&biz_id=${recordId.value}`,
-      );
-      attachmentList.value = attachmentResponse.items || [];
-    } catch (error) {
-      attachmentList.value = [];
-    }
   } catch (error) {
     record.value = (await getCachedRecords(moduleKey.value)).find((item) => item.record_id === recordId.value) || null;
     if (!record.value) uni.showToast({ title: error.message || "记录加载失败", icon: "none" });
-  } finally {
-    loading.value = false;
+  }
+  await Promise.allSettled([loadMaterials(), loadLegacyAttachments()]);
+  loading.value = false;
+}
+
+async function loadMaterials() {
+  try {
+    const response = await listMaterials({ module: moduleKey.value, recordId: recordId.value, pageSize: 100 });
+    materials.value = response.items || [];
+  } catch (error) {
+    materials.value = [];
+  }
+}
+
+async function loadLegacyAttachments() {
+  try {
+    const response = await request(`/attachments?biz_type=${moduleKey.value}&biz_id=${recordId.value}`);
+    attachmentList.value = response.items || [];
+  } catch (error) {
+    attachmentList.value = [];
   }
 }
 
 function editRecord() {
-  if (!recordId.value) return;
   uni.navigateTo({ url: `/pages/entry/index?module=${moduleKey.value}&id=${recordId.value}` });
 }
 
-async function toggleShared(event) {
-  const next = event.detail.value ? 1 : 0;
-  try {
-    const updated = await request(`/work-logs/${recordId.value}`, { method: "PATCH", data: { is_shared: next } });
-    record.value = updated;
-    uni.showToast({ title: next ? "已设为团队共享" : "已设为仅本人可见", icon: "success" });
-  } catch (error) {
-    uni.showToast({ title: error.message || "设置失败", icon: "none" });
-  }
+function openMaterialPage(item) {
+  uni.navigateTo({ url: `/pages/material/index?id=${item.material_id}` });
 }
 
-async function openAttachment(file) {
-  const url = file.file_url;
+async function chooseMaterial() {
+  if (uploading.value) return;
+  uni.showActionSheet({
+    itemList: ["拍照或从相册选择", "导入任意格式文件"],
+    success: async (result) => {
+      try {
+        const files = result.tapIndex === 0
+          ? await chooseImages({ count: 9, sourceType: ["album", "camera"] })
+          : await chooseFiles({ count: 9 });
+        if (!files.length) return;
+        uploading.value = true;
+        for (const file of files) {
+          await uploadMaterial(file, {
+            module: moduleKey.value,
+            recordId: recordId.value,
+            title: file.name.replace(/\.[^.]+$/, ""),
+          });
+        }
+        uni.showToast({ title: `已补充 ${files.length} 份资料`, icon: "success" });
+        await loadMaterials();
+      } catch (error) {
+        uni.showToast({ title: error.message || error.errMsg || "资料上传失败", icon: "none" });
+      } finally {
+        uploading.value = false;
+      }
+    },
+  });
+}
+
+function openAttachment(file) {
   if (file.file_type === "image") {
-    uni.previewImage({ urls: [url], current: url });
+    uni.previewImage({ urls: [file.file_url], current: file.file_url });
     return;
   }
+  // #ifdef H5
+  window.open(file.file_url, "_blank", "noopener,noreferrer");
+  return;
+  // #endif
   uni.showLoading({ title: "正在打开" });
   uni.downloadFile({
-    url,
+    url: file.file_url,
     success: (result) => {
-      if (result.statusCode === 200) {
-        uni.openDocument({ filePath: result.tempFilePath, showMenu: true });
-      } else {
-        uni.showToast({ title: "附件下载失败", icon: "none" });
-      }
+      if (result.statusCode === 200) uni.openDocument({ filePath: result.tempFilePath, showMenu: true });
+      else uni.showToast({ title: "附件下载失败", icon: "none" });
     },
     fail: () => uni.showToast({ title: "附件下载失败", icon: "none" }),
     complete: () => uni.hideLoading(),
   });
 }
 
+async function toggleShared(event) {
+  if (!record.value?.can_edit) return;
+  const next = event.detail.value ? 1 : 0;
+  try {
+    record.value = await request(`/work-logs/${recordId.value}`, { method: "PATCH", data: { is_shared: next } });
+    uni.showToast({ title: next ? "已设为团队共享" : "已设为仅本人可见", icon: "success" });
+  } catch (error) {
+    uni.showToast({ title: error.message || "设置失败", icon: "none" });
+  }
+}
+
 function deleteRecord() {
+  if (!record.value?.can_edit) return;
   uni.showModal({
     title: "删除记录",
-    content: "记录将进入回收站并保留 7 天。",
-    confirmColor: "#FF7D00",
+    content: "记录会进入回收站并保留 7 天。",
+    confirmColor: "#b64c46",
     success: async (result) => {
       if (!result.confirm) return;
       try {
         await request(`/${config.value.endpoint}/${recordId.value}`, { method: "DELETE" });
         uni.showToast({ title: "已移入回收站", icon: "success" });
-        setTimeout(() => uni.navigateBack(), 500);
+        setTimeout(() => uni.navigateBack(), 450);
       } catch (error) {
         uni.showToast({ title: error.message || "删除失败", icon: "none" });
       }
@@ -185,160 +317,360 @@ onLoad((options) => {
   recordId.value = options?.id || "";
   loadDetail();
 });
+
+onShow(() => {
+  if (recordId.value && record.value) {
+    loadMaterials();
+  }
+});
 </script>
 
 <style scoped>
 .detail-page {
-  width: 100vw;
   height: 100vh;
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
-  background: var(--page-bg);
 }
 .header-action {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  padding: 0 7px;
   color: var(--accent);
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 650;
 }
 .detail-scroll {
-  flex: 1;
-  min-height: 0;
+  height: calc(100vh - 62px - env(safe-area-inset-top));
 }
-.content {
-  padding: 0 16px env(safe-area-inset-bottom);
+.detail-content {
+  padding: 4px 16px 0;
 }
-.hero-card,
-.section-card {
-  margin-bottom: 12px;
-  border-radius: 8px;
+.record-hero {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   background: var(--surface);
 }
-.hero-card {
-  padding: 16px;
+.tone-sale .record-hero {
+  border-color: #ecd2c9;
+  background: #fffaf8;
+}
+.tone-lease .record-hero {
+  border-color: #cbe2dc;
+  background: #f7fffc;
+}
+.tone-work .record-hero {
+  border-color: #d1dceb;
+  background: #f8faff;
+}
+.tone-inspiration .record-hero {
+  border-color: #e9d4db;
+  background: #fff9fb;
+}
+.hero-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.hero-meta {
+  text-align: right;
+}
+.hero-kicker {
+  display: block;
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+}
+.hero-date {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: 10px;
 }
 .record-title {
   display: block;
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 26px;
+  margin-top: 17px;
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 760;
+  line-height: 30px;
+  word-break: break-word;
 }
-.record-subtitle {
+.hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 10px;
+}
+.hero-badge {
+  padding: 3px 7px;
+  border: 1px solid rgba(28, 40, 37, 0.08);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--text-secondary);
+  font-size: 8px;
+  font-weight: 600;
+}
+.hero-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 17px;
+}
+.edit-button,
+.add-file-button {
+  height: 41px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 650;
+}
+.edit-button {
+  flex: 1.1;
+  background: var(--ink);
+  color: #ffffff;
+}
+.add-file-button {
+  flex: 1;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+}
+.section-card {
+  margin-top: 12px;
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.section-kicker {
   display: block;
-  margin-top: 6px;
+  margin-bottom: 3px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+}
+.section-title {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+}
+.field-total {
+  color: var(--text-muted);
+  font-size: 9px;
 }
 .field-list {
-  margin-top: 12px;
+  margin-top: 9px;
 }
 .field-row {
-  min-height: 40px;
   display: flex;
   align-items: flex-start;
-  padding: 9px 0;
+  gap: 12px;
+  padding: 10px 0;
   border-top: 1px solid var(--border);
 }
 .field-label {
-  width: 112px;
+  width: 100px;
   flex: none;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 20px;
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 18px;
 }
 .field-value {
   flex: 1;
   color: var(--text-primary);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: right;
   white-space: pre-wrap;
+  word-break: break-word;
 }
 .field-value.muted {
   color: var(--text-muted);
 }
-.section-card {
-  padding: 16px;
+.material-list {
+  margin-top: 7px;
 }
-.section-title {
-  display: block;
-  margin-bottom: 8px;
-  font-size: 14px;
-  font-weight: 600;
+.add-more {
+  min-height: 29px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--accent);
+  font-size: 9px;
 }
-.attachment-row {
+.material-empty {
+  min-height: 76px;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 0;
-  border-top: 1px solid var(--border);
+  margin-top: 10px;
+  padding: 11px;
+  border: 1px dashed #cfdcd7;
+  border-radius: 8px;
+  background: #fafcfb;
 }
-.attachment-icon {
-  width: 40px;
-  height: 40px;
+.material-empty-icon {
+  width: 39px;
+  height: 39px;
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  background: var(--page-bg);
-  color: var(--text-muted);
-  font-size: 12px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--accent);
 }
-.attachment-info {
+.material-empty-copy {
   flex: 1;
   min-width: 0;
 }
-.attachment-name {
+.material-empty-title {
+  display: block;
+  color: var(--text-primary);
+  font-size: 10px;
+  font-weight: 650;
+}
+.material-empty-note {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 8px;
+}
+.legacy-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.legacy-card .section-head + .legacy-row {
+  margin-top: 9px;
+}
+.legacy-icon {
+  width: 35px;
+  height: 35px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--accent);
+}
+.legacy-copy {
+  flex: 1;
+  min-width: 0;
+}
+.legacy-name {
   display: block;
   overflow: hidden;
-  font-size: 13px;
+  color: var(--text-primary);
+  font-size: 10px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.attachment-meta {
+.legacy-meta {
   display: block;
-  margin-top: 4px;
+  margin-top: 3px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 8px;
 }
-.attachment-open {
+.legacy-arrow {
   flex: none;
-  color: var(--accent);
-  font-size: 11px;
+  color: var(--text-muted);
 }
 .share-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
 }
-.share-title,
-.share-desc {
-  display: block;
-}
-.share-title {
-  font-size: 14px;
-  font-weight: 600;
-}
-.share-desc {
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-.bottom-actions {
+.share-copy {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 0;
+  gap: 10px;
 }
-.edit-button {
+.share-icon {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--work-soft);
+  color: var(--work);
+}
+.share-title {
+  display: block;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 650;
+}
+.share-desc {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 8px;
+}
+.record-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+.secondary-action,
+.delete-action {
+  height: 43px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 650;
+}
+.secondary-action {
   flex: 1;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
 }
-.delete-button {
-  width: 88px;
-  height: 44px;
-  color: var(--warning);
-  line-height: 44px;
+.delete-action {
+  width: 100px;
+  border: 1px solid #ebd5d1;
+  background: #fff8f6;
+  color: var(--danger);
 }
-.scroll-space {
-  height: 24px;
+.loading-page {
+  min-height: 75vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.page-space {
+  height: calc(26px + env(safe-area-inset-bottom));
+}
+.spin {
+  animation: spin 900ms linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

@@ -190,15 +190,16 @@ export async function persistPendingAttachments(files = []) {
 
 async function uploadPersistedAttachment(item, bizType, bizId) {
   if (item.storage === "native") {
-    return upload("/attachments", item.path, { biz_type: bizType, biz_id: bizId });
+    return upload("/materials/upload", item.path, { module: bizType, record_id: bizId, title: item.name });
   }
   const blob = await getH5Attachment(item.id);
   if (!blob) throw new Error(`本地附件已缺失：${item.name}`);
   const form = new FormData();
   form.append("file", blob, item.name || "附件");
-  form.append("biz_type", bizType);
-  form.append("biz_id", bizId);
-  const response = await fetch(`${API_BASE_URL}/attachments`, {
+  form.append("module", bizType);
+  form.append("record_id", bizId);
+  form.append("title", item.name || "附件");
+  const response = await fetch(`${API_BASE_URL}/materials/upload`, {
     method: "POST",
     headers: { "X-Device-ID": getDeviceId() },
     body: form,

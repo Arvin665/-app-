@@ -4,13 +4,20 @@ export const modules = {
     key: "sale",
     name: "项目买卖信息",
     endpoint: "sales",
+    visual: {
+      short: "买卖",
+      icon: "Building2",
+      kicker: "PROJECT DEALS",
+      description: "项目动向、交易价格与市场传闻",
+    },
     dateField: "deal_date",
+    optional: true,
     titleField: "project_name",
     subtitleFields: ["district", "deal_status"],
     fields: [
-      { key: "project_name", label: "项目名称", type: "text", required: true, core: true },
-      { key: "district", label: "所在区域", type: "text", required: true, core: true, placeholder: "如浦东-陆家嘴" },
-      { key: "deal_date", label: "交易时间", type: "date", required: true, core: true },
+      { key: "project_name", label: "项目名称", type: "text", core: true },
+      { key: "district", label: "所在区域", type: "text", core: true, placeholder: "如浦东-陆家嘴" },
+      { key: "deal_date", label: "交易时间", type: "date", core: true },
       { key: "deal_total_price", label: "交易总价", type: "number", core: true, unit: "万元" },
       { key: "buyer", label: "受让方", type: "text", core: true },
       { key: "address", label: "详细地址", type: "text" },
@@ -22,7 +29,7 @@ export const modules = {
       { key: "deal_unit_price", label: "成交单价", type: "number", unit: "元/㎡" },
       { key: "deal_type", label: "交易方式", type: "select", options: ["买卖", "股权交易", "资产转让", "司法拍卖", "其他"] },
       { key: "deal_target", label: "交易标的", type: "text" },
-      { key: "deal_status", label: "交易状态", type: "select", options: ["已签约", "已成交", "洽谈中", "意向中", "已终止"] },
+      { key: "deal_status", label: "交易状态", type: "select", options: ["信息待补充", "洽谈中", "意向中", "已签约", "已成交", "已终止"] },
       { key: "seller", label: "原业主方", type: "text" },
       { key: "buyer_purpose", label: "买家购置用途", type: "text" },
       { key: "has_intermediary", label: "是否有居间", type: "select", options: ["是", "否"] },
@@ -39,6 +46,12 @@ export const modules = {
     key: "lease",
     name: "企业租赁信息",
     endpoint: "leases",
+    visual: {
+      short: "租赁",
+      icon: "BriefcaseBusiness",
+      kicker: "TENANT MOVES",
+      description: "企业搬迁、扩租与成交条件",
+    },
     dateField: "start_date",
     titleField: "company_name",
     subtitleFields: ["new_project", "lease_type"],
@@ -73,6 +86,12 @@ export const modules = {
     key: "work",
     name: "工作记录",
     endpoint: "work-logs",
+    visual: {
+      short: "工作",
+      icon: "ClipboardCheck",
+      kicker: "WORK RHYTHM",
+      description: "跟进、复盘与每天的待办节奏",
+    },
     dateField: "record_date",
     titleField: "record_type",
     subtitleFields: ["related_project", "follow_status"],
@@ -93,6 +112,12 @@ export const modules = {
     key: "inspiration",
     name: "个人灵感角",
     endpoint: "inspirations",
+    visual: {
+      short: "灵感",
+      icon: "Sparkles",
+      kicker: "PRIVATE NOTES",
+      description: "只属于你的观察、线索与念头",
+    },
     dateField: "record_time",
     titleField: "inspiration_type",
     subtitleFields: ["tags"],
@@ -128,7 +153,7 @@ export function initialFields(moduleKey) {
   modules[moduleKey].fields.forEach((field) => {
     if (Object.prototype.hasOwnProperty.call(field, "default")) fields[field.key] = field.default;
   });
-  if (moduleKey === "sale") Object.assign(fields, { deal_date: localDate(), deal_status: "已签约" });
+  if (moduleKey === "sale") Object.assign(fields, { deal_date: localDate(), deal_status: "信息待补充" });
   if (moduleKey === "lease") Object.assign(fields, { start_date: localDate(), lease_type: "新租" });
   if (moduleKey === "work") Object.assign(fields, { record_date: localDate(), record_type: "每日心得", is_shared: 0 });
   if (moduleKey === "inspiration") Object.assign(fields, { record_time: localDateTime(), inspiration_type: "灵感" });

@@ -4,7 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 const [, , targetFragment, expression = "document.body.innerText"] = process.argv;
-const targets = await fetch("http://127.0.0.1:9222/json/list").then((response) => response.json());
+const cdpPort = process.env.CDP_PORT || "9222";
+const targets = await fetch(`http://127.0.0.1:${cdpPort}/json/list`).then((response) => response.json());
 const target = targets.find((item) => item.type === "page" && item.url.includes(targetFragment));
 if (!target) throw new Error(`No page target found for ${targetFragment}`);
 
@@ -44,34 +45,28 @@ if (process.env.CDP_WIDTH && process.env.CDP_HEIGHT) {
   });
 }
 
-// Browser file inputs cannot be assigned directly. Inject a File through
-// DataTransfer before running the requested expression when requested.
+// Use the browser's native file-input command so uni-app receives the same
+// change event as a real file picker instead of a synthetic DataTransfer.
 if (process.env.CDP_FILE_INPUT && process.env.CDP_FILE_PATH) {
-  const file = fs.readFileSync(process.env.CDP_FILE_PATH);
-  const fileName = path.basename(process.env.CDP_FILE_PATH);
-  const fileExpression = `(() => {
-    const input = document.querySelector(${JSON.stringify(process.env.CDP_FILE_INPUT)});
-    if (!input) throw new Error("file input not found");
-    const bytes = Uint8Array.from(atob(${JSON.stringify(file.toString("base64"))}), c => c.charCodeAt(0));
-    const file = new File([bytes], ${JSON.stringify(fileName)}, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const transfer = new DataTransfer();
-    transfer.items.add(file);
-    input.files = transfer.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-    return file.name;
-  })()`;
-  const injected = await send("Runtime.evaluate", {
-    expression: fileExpression,
-    awaitPromise: true,
-    returnByValue: true,
+  const filePath = path.resolve(process.env.CDP_FILE_PATH);
+  fs.accessSync(filePath, fs.constants.R_OK);
+  await send("DOM.enable");
+  const inputResult = await send("Runtime.evaluate", {
+    expression: `document.querySelector(${JSON.stringify(process.env.CDP_FILE_INPUT)})`,
+    includeCommandLineAPI: true,
+    returnByValue: false,
     userGesture: true,
   });
-  if (injected.exceptionDetails) throw new Error(injected.exceptionDetails.text);
+  if (inputResult.exceptionDetails) throw new Error(inputResult.exceptionDetails.text);
+  const objectId = inputResult.result?.objectId;
+  if (!objectId) throw new Error(`file input not found: ${process.env.CDP_FILE_INPUT}`);
+  await send("DOM.setFileInputFiles", { files: [filePath], objectId });
 }
 
 const evaluation = await send("Runtime.evaluate", {
   expression,
   awaitPromise: true,
+  includeCommandLineAPI: true,
   returnByValue: true,
   userGesture: true,
 });

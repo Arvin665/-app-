@@ -216,7 +216,7 @@ def find_duplicates(
     if model is PropertySale:
         deal_date = payload.get("deal_date")
         project_name = payload.get("project_name")
-        if not deal_date or not project_name:
+        if not deal_date or not project_name or project_name in {"待补充项目", "待确认项目", "未命名项目"}:
             return []
         if isinstance(deal_date, str):
             deal_date = date.fromisoformat(deal_date)

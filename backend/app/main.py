@@ -8,7 +8,21 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 
-from app.api import admin, ai, attachments, auth, batch, inspirations, leases, recycle, sales, sync, transfer, work_logs
+from app.api import (
+    admin,
+    ai,
+    attachments,
+    auth,
+    batch,
+    inspirations,
+    leases,
+    materials,
+    recycle,
+    sales,
+    sync,
+    transfer,
+    work_logs,
+)
 from app.core.config import settings
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
@@ -75,6 +89,7 @@ for router in [
     work_logs.router,
     inspirations.router,
     attachments.router,
+    materials.router,
     ai.router,
     sync.router,
     transfer.router,

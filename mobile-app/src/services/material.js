@@ -1,0 +1,180 @@
+import { API_BASE_URL, request, upload } from "./api";
+import { getDeviceId } from "./device";
+
+export const materialTypeLabels = {
+  image: "图片",
+  pdf: "PDF",
+  excel: "表格",
+  csv: "CSV",
+  word: "文档",
+  presentation: "演示",
+  text: "文本",
+  audio: "音频",
+  video: "视频",
+  archive: "压缩包",
+  other: "其他",
+};
+
+export const extractionLabels = {
+  extracted: "已提取正文",
+  stored: "原件已安全存放",
+  unavailable: "原件已存，待配置识别",
+  failed: "原件已存，提取失败",
+};
+
+export function formatFileSize(bytes) {
+  const size = Number(bytes || 0);
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+export function formatMaterialDate(value) {
+  if (!value) return "";
+  return String(value).replace("T", " ").slice(0, 16);
+}
+
+function normalizeChosenFile(file, fallbackName = "资料文件") {
+  const path = file.path || file.tempFilePath || file.url;
+  if (!path) return null;
+  return {
+    path,
+    name: file.name || path.split(/[\\/]/).pop() || fallbackName,
+    size: Number(file.size || file.raw?.size || 0),
+    type: file.type || file.raw?.type || "",
+    raw: file,
+  };
+}
+
+export function chooseImages({ count = 9, sourceType = ["album"] } = {}) {
+  return new Promise((resolve, reject) => {
+    uni.chooseImage({
+      count,
+      sizeType: ["original"],
+      sourceType,
+      success: (result) => {
+        const paths = result.tempFilePaths || [];
+        resolve(
+          paths
+            .map((path, index) => normalizeChosenFile(result.tempFiles?.[index] || { path }, `图片${index + 1}`))
+            .filter(Boolean),
+        );
+      },
+      fail: (error) => {
+        if (/cancel/i.test(error.errMsg || "")) resolve([]);
+        else reject(error);
+      },
+    });
+  });
+}
+
+export function chooseFiles({ count = 9 } = {}) {
+  if (typeof uni.chooseFile !== "function") {
+    return rejectUnsupported();
+  }
+  return new Promise((resolve, reject) => {
+    uni.chooseFile({
+      count,
+      type: "all",
+      success: (result) => {
+        const paths = result.tempFilePaths || [];
+        resolve(
+          paths
+            .map((path, index) => normalizeChosenFile(result.tempFiles?.[index] || { path }, `资料${index + 1}`))
+            .filter(Boolean),
+        );
+      },
+      fail: (error) => {
+        if (/cancel/i.test(error.errMsg || "")) resolve([]);
+        else reject(error);
+      },
+    });
+  });
+}
+
+function rejectUnsupported() {
+  const error = new Error("当前运行环境暂不支持系统文件选择，请使用 H5 或系统文件导入能力");
+  uni.showToast({ title: error.message, icon: "none", duration: 2800 });
+  return Promise.reject(error);
+}
+
+export function materialUploadForm({ module, recordId, title } = {}) {
+  const form = { module };
+  if (recordId) form.record_id = recordId;
+  if (title) form.title = title;
+  return form;
+}
+
+export async function uploadMaterial(file, { module, recordId, title } = {}) {
+  const normalized = normalizeChosenFile(file);
+  if (!normalized) throw new Error("没有可上传的文件");
+  return upload("/materials/upload", normalized.path, materialUploadForm({ module, recordId, title }));
+}
+
+export function listMaterials({ module, fileType, keyword, recordId, page = 1, pageSize = 30 } = {}) {
+  const params = new URLSearchParams();
+  if (module) params.set("module", module);
+  if (fileType) params.set("file_type", fileType);
+  if (keyword) params.set("keyword", keyword);
+  if (recordId) params.set("record_id", recordId);
+  params.set("page", String(page));
+  params.set("page_size", String(pageSize));
+  return request(`/materials?${params.toString()}`);
+}
+
+export function getMaterial(materialId) {
+  return request(`/materials/${materialId}`);
+}
+
+export function linkMaterial(materialId, recordId) {
+  return request(`/materials/${materialId}/link`, {
+    method: "POST",
+    data: { record_id: recordId },
+  });
+}
+
+export function deleteMaterial(materialId) {
+  return request(`/materials/${materialId}`, { method: "DELETE" });
+}
+
+export function openMaterial(material, { openExternally = false } = {}) {
+  if (!material?.file_url) return;
+  if (material.file_type === "image" && !openExternally) {
+    uni.previewImage({ urls: [material.file_url], current: material.file_url });
+    return;
+  }
+
+  // #ifdef H5
+  window.open(material.file_url, "_blank", "noopener,noreferrer");
+  return;
+  // #endif
+
+  uni.showLoading({ title: "正在准备文件" });
+  uni.downloadFile({
+    url: material.file_url,
+    header: { "X-Device-ID": getDeviceId() },
+    success: (result) => {
+      if (result.statusCode !== 200) {
+        uni.showToast({ title: "文件下载失败", icon: "none" });
+        return;
+      }
+      uni.openDocument({
+        filePath: result.tempFilePath,
+        showMenu: true,
+        fail: () => uni.showToast({ title: "当前格式无法直接预览，请用系统应用打开", icon: "none" }),
+      });
+    },
+    fail: () => uni.showToast({ title: "文件下载失败", icon: "none" }),
+    complete: () => uni.hideLoading(),
+  });
+}
+
+export function absoluteMaterialUrl(value) {
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith("/")) {
+    const root = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
+    return `${root}${value}`;
+  }
+  return value;
+}

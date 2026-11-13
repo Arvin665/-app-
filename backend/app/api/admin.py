@@ -10,7 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 
 from app.api.deps import AdminDevice, CurrentDevice, DbSession
 from app.core.config import settings
@@ -18,6 +18,7 @@ from app.models import (
     Attachment,
     Device,
     InviteCode,
+    Material,
     OperationLog,
     PersonalInspiration,
     PropertySale,
@@ -266,13 +267,14 @@ def statistics(db: DbSession, device: AdminDevice):
     }
 
 
-# 备份恢复只合并业务表和附件，不覆盖邀请码/设备身份，避免意外锁死管理员。
+# 备份恢复只合并业务表、附件和资料资产，不覆盖设备身份，避免意外锁死管理员。
 BACKUP_MODELS = {
     "biz_property_sale": PropertySale,
     "biz_tenancy_lease": TenancyLease,
     "biz_work_log": WorkLog,
     "biz_personal_inspiration": PersonalInspiration,
     "sys_attachment": Attachment,
+    "sys_material": Material,
 }
 
 
@@ -302,7 +304,30 @@ def backup_rows_for(db: DbSession, model, device: Device) -> list:
             },
         }
         rows = db.scalars(select(Attachment).order_by(Attachment.upload_time.desc())).all()
-        return [row for row in rows if row.biz_id in visible_ids.get(row.biz_type, set())]
+        return [
+            row
+            for row in rows
+            if row.data_status == 1 and row.biz_id in visible_ids.get(row.biz_type, set())
+        ]
+    if model is Material:
+        shared_work_ids = select(WorkLog.record_id).where(
+            WorkLog.data_status == 1,
+            WorkLog.is_shared == 1,
+        )
+        return list(
+            db.scalars(
+                select(Material)
+                .where(
+                    Material.data_status == 1,
+                    or_(
+                        Material.module.in_(["sale", "lease"]),
+                        Material.uploader_id == device.device_id,
+                        and_(Material.module == "work", Material.record_id.in_(shared_work_ids)),
+                    ),
+                )
+                .order_by(Material.upload_time.desc())
+            ).all()
+        )
     return list(db.scalars(select(model)).all())
 
 
@@ -342,7 +367,7 @@ def download_full_backup(db: DbSession, device: AdminDevice, request: Request):
     ]
     tables["sys_invite_code"] = [serialize_invite(item) for item in db.scalars(select(InviteCode)).all()]
     payload = {
-        "version": 1,
+        "version": 2,
         "exported_at": datetime.now().isoformat(),
         "database": "mall_office_asset",
         "tables": tables,
@@ -351,18 +376,17 @@ def download_full_backup(db: DbSession, device: AdminDevice, request: Request):
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("database.json", json.dumps(payload, ensure_ascii=False, default=str, indent=2))
         uploads_root = Path(settings.upload_dir)
-        for attachment in backup_rows_for(db, Attachment, device):
-            prefix = f"{settings.public_base_url.rstrip('/')}/uploads/"
-            if attachment.file_url.startswith(prefix):
-                relative = attachment.file_url[len(prefix) :]
-                source = uploads_root / relative
-                if source.is_file():
-                    archive.write(source, f"uploads/{relative}")
-            if attachment.thumbnail_url and attachment.thumbnail_url.startswith(prefix):
-                relative = attachment.thumbnail_url[len(prefix) :]
-                source = uploads_root / relative
-                if source.is_file():
-                    archive.write(source, f"uploads/{relative}")
+        prefix = f"{settings.public_base_url.rstrip('/')}/uploads/"
+        for model in (Attachment, Material):
+            for record in backup_rows_for(db, model, device):
+                for field in ("file_url", "thumbnail_url"):
+                    url = getattr(record, field, None)
+                    if not url or not url.startswith(prefix):
+                        continue
+                    relative = url[len(prefix) :]
+                    source = uploads_root / relative
+                    if source.is_file():
+                        archive.write(source, f"uploads/{relative}")
     log_operation(db, device.device_id, "export", "sale", None, {"operation": "full_backup"}, request.client.host if request.client else None)
     db.commit()
     buffer.seek(0)

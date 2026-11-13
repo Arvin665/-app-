@@ -2,7 +2,7 @@
   <view class="page-header safe-top">
     <view class="header-row">
       <view class="side left" @tap="goBack">
-        <text v-if="back !== false" class="back-text">返回</text>
+        <ChevronLeft v-if="back !== false" :size="20" :stroke-width="2.2" />
       </view>
       <text class="title">{{ title }}</text>
       <view class="side right">
@@ -13,6 +13,7 @@
 </template>
 
 <script setup>
+import { ChevronLeft } from "@lucide/vue";
 const props = defineProps({
   title: { type: String, default: "" },
   back: { type: Boolean, default: true },
@@ -59,5 +60,22 @@ function goBack() {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.header-row {
+  min-height: 62px;
+}
+.side {
+  width: 72px;
+  flex: none;
+}
+.back-text {
+  display: none;
+}
+.title {
+  flex: 1;
+  max-width: none;
+  text-align: center;
+  font-size: 19px;
+  font-weight: 720;
 }
 </style>

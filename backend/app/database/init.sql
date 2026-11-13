@@ -1,7 +1,7 @@
 -- =============================================
 -- 商办信息资产库 数据库初始化
 -- MySQL 8.0 / utf8mb4 / utf8mb4_unicode_ci
--- 可直接执行；重复执行只重建当前库中的这 8 张表。
+-- 可直接执行；重复执行只重建当前库中的这 9 张表。
 -- =============================================
 CREATE DATABASE IF NOT EXISTS `mall_office_asset`
   DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -13,6 +13,7 @@ DROP TABLE IF EXISTS `biz_work_log`;
 DROP TABLE IF EXISTS `biz_tenancy_lease`;
 DROP TABLE IF EXISTS `biz_property_sale`;
 DROP TABLE IF EXISTS `sys_attachment`;
+DROP TABLE IF EXISTS `sys_material`;
 DROP TABLE IF EXISTS `sys_operation_log`;
 DROP TABLE IF EXISTS `sys_device`;
 DROP TABLE IF EXISTS `sys_invite_code`;
@@ -75,6 +76,31 @@ CREATE TABLE `sys_attachment` (
   PRIMARY KEY (`attach_id`),
   KEY `idx_biz` (`biz_id`,`biz_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='公共附件表';
+
+CREATE TABLE `sys_material` (
+  `material_id` varchar(32) NOT NULL COMMENT '资料唯一ID',
+  `module` varchar(20) NOT NULL COMMENT '所属模块：sale/lease/work/inspiration',
+  `record_id` varchar(32) DEFAULT NULL COMMENT '可选的关联业务记录ID',
+  `title` varchar(255) NOT NULL COMMENT '资料标题',
+  `file_name` varchar(255) NOT NULL COMMENT '原始文件名',
+  `file_type` varchar(20) NOT NULL COMMENT 'image/pdf/excel/csv/word/presentation/text/audio/video/archive/other',
+  `mime_type` varchar(100) DEFAULT NULL COMMENT 'MIME类型',
+  `file_size` bigint DEFAULT NULL COMMENT '文件大小（字节）',
+  `file_url` varchar(255) NOT NULL COMMENT '原件地址',
+  `thumbnail_url` varchar(255) DEFAULT NULL COMMENT '缩略图地址',
+  `extraction_status` varchar(20) NOT NULL DEFAULT 'stored' COMMENT 'extracted/unavailable/failed/stored',
+  `extracted_text` longtext COMMENT '可检索的提取正文',
+  `extracted_data` longtext COMMENT '结构化字段 JSON',
+  `metadata_json` longtext COMMENT '文件元数据 JSON',
+  `extraction_note` text COMMENT '识别状态说明',
+  `uploader_id` varchar(32) NOT NULL COMMENT '上传人设备ID',
+  `upload_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '上传时间',
+  `data_status` tinyint NOT NULL DEFAULT '1' COMMENT '数据状态：1=正常 0=已删除',
+  PRIMARY KEY (`material_id`),
+  KEY `idx_material_module_time` (`module`,`upload_time`),
+  KEY `idx_material_record` (`record_id`),
+  KEY `idx_material_uploader` (`uploader_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='模块资料资产库';
 
 CREATE TABLE `biz_property_sale` (
   `record_id` varchar(32) NOT NULL COMMENT '记录唯一ID',

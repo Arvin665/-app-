@@ -6,6 +6,7 @@ pydantic-settings==2.8.1
 python-multipart==0.0.20
 redis==5.2.1
 openpyxl==3.1.5
+pypdf==5.4.0
 Pillow==11.2.1
 cryptography==44.0.2
 httpx==0.28.1
