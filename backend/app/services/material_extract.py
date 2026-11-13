@@ -11,6 +11,11 @@ from xml.etree import ElementTree
 from openpyxl import load_workbook
 from PIL import Image
 
+from app.core.config import settings
+from app.services.local_asr import LocalAsrUnavailable
+from app.services.media_extract import MediaExtractionUnavailable, transcribe_media
+from app.services.ocr_extract import ocr_image, ocr_pdf_pages
+
 TEXT_SUFFIXES = {
     ".txt",
     ".md",
@@ -143,7 +148,7 @@ def _extract_pptx(content: bytes) -> tuple[str, dict[str, Any]]:
     return text, {"slides": slide_count}
 
 
-def _extract_pdf(content: bytes) -> tuple[str, dict[str, Any]]:
+def _extract_pdf(content: bytes) -> dict[str, Any]:
     try:
         from pypdf import PdfReader
     except ImportError as exc:
@@ -151,26 +156,88 @@ def _extract_pdf(content: bytes) -> tuple[str, dict[str, Any]]:
     reader = PdfReader(BytesIO(content))
     if reader.is_encrypted:
         raise ValueError("PDF 已加密，无法直接提取正文")
-    pages: list[str] = []
     page_total = len(reader.pages)
-    for page in list(reader.pages)[:100]:
+    limit = min(page_total, 100)
+    page_text: dict[int, str] = {}
+    ocr_candidates: list[int] = []
+    for index, page in enumerate(list(reader.pages)[:limit]):
         try:
-            text = page.extract_text() or ""
+            text = (page.extract_text() or "").strip()
         except Exception:
             text = ""
-        if text.strip():
-            pages.append(text.strip())
-    return "\n\n".join(pages), {"pages": page_total, "extracted_pages": min(page_total, 100)}
+        if text:
+            page_text[index] = text
+        if len(text) < settings.ocr_min_text_chars:
+            ocr_candidates.append(index)
+
+    ocr_pages: list[int] = []
+    ocr_confidence = 0.0
+    ocr_note = ""
+    selected_for_ocr = ocr_candidates[: settings.ocr_max_pdf_pages] if settings.ocr_enabled else []
+    if selected_for_ocr:
+        try:
+            ocr_result = ocr_pdf_pages(content, selected_for_ocr)
+            ocr_pages = ocr_result["pages"]
+            ocr_confidence = ocr_result["confidence"]
+            page_sections = [item for item in ocr_result["text"].split("\n\n") if item.strip()]
+            used_pages: list[int] = []
+            for section in page_sections:
+                heading = re.match(r"\[第 (\d+) 页\]", section)
+                if heading:
+                    used_pages.append(int(heading.group(1)) - 1)
+            if not used_pages:
+                used_pages = selected_for_ocr[: len(page_sections)]
+            for index, section in zip(used_pages, page_sections):
+                page_text[index] = "\n".join(filter(None, [page_text.get(index, ""), section.strip()]))
+            ocr_note = f"，其中 {len(ocr_pages)} 页完成扫描 OCR"
+        except Exception as exc:
+            ocr_note = f"，扫描页 OCR 未完成：{str(exc)[:120]}"
+
+    text = "\n\n".join(page_text[index] for index in sorted(page_text))
+    if text.strip():
+        status = "extracted"
+        note = f"已提取 PDF 前 {limit} 页正文{ocr_note}。"
+    else:
+        status = "unavailable"
+        note = "PDF 没有可提取正文；扫描 OCR 也没有返回文字。"
+    return {
+        "text": text,
+        "status": status,
+        "note": note,
+        "metadata": {
+            "pages": page_total,
+            "extracted_pages": limit,
+            "ocr_pages": ocr_pages,
+            "ocr_confidence": ocr_confidence,
+            "truncated": page_total > limit or len(ocr_candidates) > len(selected_for_ocr),
+        },
+    }
 
 
-def _extract_image(content: bytes) -> tuple[str, dict[str, Any]]:
-    with Image.open(BytesIO(content)) as image:
-        metadata = {
-            "width": image.width,
-            "height": image.height,
-            "format": image.format or "",
-        }
-    return "", metadata
+def _extract_image(content: bytes) -> dict[str, Any]:
+    if not settings.ocr_enabled:
+        with Image.open(BytesIO(content)) as image:
+            return {
+                "text": "",
+                "confidence": 0.0,
+                "status": "unavailable",
+                "note": "图片原件已保存；OCR 当前被配置为关闭。",
+                "metadata": {"width": image.width, "height": image.height, "format": image.format or ""},
+            }
+    result = ocr_image(content)
+    text = result["text"].strip()
+    return {
+        "text": text,
+        "confidence": result["confidence"],
+        "status": "extracted" if text else "stored",
+        "note": "已完成图片 OCR，文字可检索。" if text else "图片已保存；OCR 已完成，但没有识别到清晰文字。",
+        "metadata": {
+            "width": result["width"],
+            "height": result["height"],
+            "format": result["format"],
+            "ocr_confidence": result["confidence"],
+        },
+    }
 
 
 def derive_title(file_name: str, text: str) -> str:
@@ -184,7 +251,7 @@ def derive_title(file_name: str, text: str) -> str:
 def extract_material(content: bytes, file_name: str, content_type: str | None, module: str) -> dict[str, Any]:
     """提取可验证的正文，返回状态、结构和限制说明。
 
-    OCR、ASR 和旧版二进制 Office 文档不会在这里伪造识别结果。
+    OCR 与 ASR 只返回真实引擎结果；失败时保留原件并明确标记，不伪造文字。
     """
     file_type = classify_material(file_name, content_type)
     suffix = Path(file_name).suffix.lower()
@@ -214,21 +281,39 @@ def extract_material(content: bytes, file_name: str, content_type: str | None, m
             status = "extracted" if text.strip() else "stored"
             note = "已提取演示文稿文字。"
         elif suffix == ".pdf":
-            text, pdf_metadata = _extract_pdf(content)
-            metadata.update(pdf_metadata)
-            status = "extracted" if text.strip() else "unavailable"
-            note = "已提取 PDF 文本层。" if text.strip() else "PDF 没有可提取文本层，可能是扫描件，需配置 OCR。"
+            pdf_result = _extract_pdf(content)
+            text = pdf_result["text"]
+            status = pdf_result["status"]
+            note = pdf_result["note"]
+            metadata.update(pdf_result["metadata"])
         elif file_type == "image":
-            _, image_metadata = _extract_image(content)
-            metadata.update(image_metadata)
-            status = "unavailable"
-            note = "图片原件已保存；当前未配置 OCR，无法读取图片中的文字。"
+            image_result = _extract_image(content)
+            text = image_result["text"]
+            status = image_result["status"]
+            note = image_result["note"]
+            metadata.update(image_result["metadata"])
         elif file_type == "audio":
-            status = "unavailable"
-            note = "音频原件已保存；当前未配置 ASR，无法转写语音内容。"
+            media_result = transcribe_media(content, suffix)
+            text = str(media_result.get("text") or "")
+            status = "extracted" if text.strip() else "stored"
+            note = "已提取音频音轨并完成语音转写。" if text.strip() else "音频已保存；语音识别完成，但没有返回清晰文字。"
+            metadata.update({
+                "asr_provider": media_result.get("provider"),
+                "language": media_result.get("language"),
+                "duration_seconds": media_result.get("duration_seconds"),
+                "audio_format": media_result.get("audio_format"),
+            })
         elif file_type == "video":
-            status = "unavailable"
-            note = "视频原件已保存；当前未配置视频转写，无法生成文字。"
+            media_result = transcribe_media(content, suffix)
+            text = str(media_result.get("text") or "")
+            status = "extracted" if text.strip() else "stored"
+            note = "已提取视频音轨并完成语音转写。" if text.strip() else "视频已保存；语音识别完成，但没有返回清晰文字。"
+            metadata.update({
+                "asr_provider": media_result.get("provider"),
+                "language": media_result.get("language"),
+                "duration_seconds": media_result.get("duration_seconds"),
+                "audio_format": media_result.get("audio_format"),
+            })
         elif suffix in {".xls", ".doc", ".ppt"}:
             status = "unavailable"
             note = "旧版二进制 Office 文件已保存；请另存为 xlsx/docx/pptx 后可自动提取。"
@@ -238,6 +323,9 @@ def extract_material(content: bytes, file_name: str, content_type: str | None, m
         else:
             status = "stored"
             note = "文件已按原格式保存；当前没有适配该格式的正文解析器。"
+    except (LocalAsrUnavailable, MediaExtractionUnavailable) as exc:
+        status = "unavailable"
+        note = f"原件已保存；识别能力暂不可用：{str(exc)[:160]}"
     except Exception as exc:
         status = "failed"
         note = f"原件已保存，但自动提取失败：{str(exc)[:160]}"

@@ -19,7 +19,14 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,http://127.0.0.1:5176"
     )
     upload_dir: str = str(Path(__file__).resolve().parents[2] / "uploads")
-    ai_provider: str = "mock"
+    ai_provider: str = "local"
+    ocr_enabled: bool = True
+    ocr_max_pdf_pages: int = 30
+    ocr_min_text_chars: int = 20
+    asr_timeout_seconds: int = 180
+    asr_engine: str = "auto"
+    vosk_model_path: str = ""
+    ffmpeg_binary: str = ""
     auto_create_tables: bool = True
     access_cache_seconds: int = 300
 

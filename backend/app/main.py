@@ -27,6 +27,7 @@ from app.core.config import settings
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
 from app.models import Device, InviteCode
+from app.services.cache import auth_cache
 
 
 def seed_bootstrap_admin_invite() -> None:
@@ -119,6 +120,6 @@ def health():
     return {
         "status": "ok",
         "database": "ok",
-        "redis": "optional",
+        "redis": "ok" if auth_cache.ping() else "unavailable",
         "server_time": datetime.now().isoformat(timespec="seconds"),
     }

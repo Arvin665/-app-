@@ -6,7 +6,7 @@
 
 | 目录 | 内容 |
 | --- | --- |
-| `backend/` | FastAPI、SQLAlchemy、SQLite/MySQL、附件、Excel、备份恢复、设备与邀请码管理 |
+| `backend/` | FastAPI、SQLAlchemy、SQLite/MySQL、附件、Excel、备份恢复、设备与邀请码管理、本地 OCR/ASR |
 | `mobile-app/` | uni-app Vue 3 移动端，语音优先录入，支持 H5 和 App 条件编译 |
 | `desktop-app/` | Vue 3 + Element Plus 桌面 Web 与 Electron 客户端 |
 | `docker/` | 移动 H5 的 Nginx 镜像、反向代理和 HTTPS 示例 |
@@ -26,6 +26,7 @@
 ## 技术架构
 
 - 后端：Python 3.12、FastAPI、SQLAlchemy 2、Fernet 敏感字段加密。
+- 识别：RapidOCR + PyMuPDF 处理图片和扫描 PDF；Windows 使用 System.Speech，Linux/Docker 使用 Vosk 中文离线模型；ffmpeg 提取音视频音轨。
 - 本地数据库：SQLite，零配置启动，适合单机开发和验收。
 - 生产数据库：MySQL 8，数据卷持久化，由 `backend/app/database/init.sql` 初始化。
 - 缓存：Redis 7 可选，只缓存设备鉴权和同步游标；Redis 故障时回退数据库查询，不承载业务主数据。
@@ -73,9 +74,11 @@ npm run build:h5
 ### 移动端语音与资料录入
 
 - 四个模块共用语音优先录入页：可以整段口述，也可以对文本、日期、时间、金额、状态和开关字段逐项语音补充或修正。
-- H5 语音识别依赖 Edge/Chrome 的 `SpeechRecognition`/`webkitSpeechRecognition`；原生 App 依赖 `plus.speech`，未配置时应继续使用文字或字段选择。
-- 录入页和资料库支持拍照、相册及系统文件导入。原件优先保存，不因能否识别正文而阻止入库；单个文件上限为 50 MB。
-- 当前可提取并可搜索正文的常见格式包括 TXT/Markdown、CSV、XLSX、DOCX、PPTX 和带文本层的 PDF；图片、扫描 PDF、音频、视频及其他二进制格式会保留原件，不伪造 OCR/ASR 内容。
+- 再次点击麦克风会停止录音、上传后台识别，并在返回文字后自动整理字段。
+- H5 使用 Edge/Chrome 录音权限，把麦克风音频转为 16 位单声道 WAV，再调用 `/api/v1/ai/transcribe`；不支持录音上传的浏览器才回退到浏览器语音识别。原生 App 使用 `plus.speech`。
+- 录入页和资料库支持拍照、相册及 H5 系统文件导入。原件先落盘，再尝试识别，不因识别失败而丢失文件；单个文件上限为 50 MB。
+- 当前可提取并可搜索正文的格式包括 TXT/Markdown、CSV、XLSX、DOCX、PPTX、文字 PDF、图片 OCR、扫描 PDF OCR，以及音频和视频中的语音。没有适配器的格式仍按原件保存，不伪造识别结果。
+- Windows 本机默认使用系统中文离线识别；Linux/Docker 使用 Vosk。需要在本机准备 Vosk 备用引擎时运行：`& '.\.venv\Scripts\python.exe' 'backend\scripts\download_vosk_model.py'`。
 - 项目买卖信息不设置业务必填项，可以只记下一条项目名称、传闻或零散线索，价格、买家、时间和交易条件均可之后补充。
 - 四个模块均可在工作台查看最近记录，并通过模块历史、全部历史或资料库回看之前的记录和材料。
 
@@ -115,6 +118,8 @@ npx electron-builder --win nsis --config.win.signAndEditExecutable=false
 
 Docker 拓扑为：`web -> backend -> mysql/redis`。后端不直接暴露端口，H5 和 API 都通过 Nginx 的 80 端口访问。
 
+后端镜像会安装 ffmpeg、RapidOCR/PyMuPDF 运行库，并在构建时下载 Vosk 中文模型和 ONNX OCR 依赖。首次构建需要访问 PyPI、模型下载站和基础镜像仓库。
+
 ```powershell
 Copy-Item .env.example .env
 # 编辑 .env，至少替换数据库密码、SENSITIVE_FIELD_KEY 和邀请码
@@ -136,6 +141,9 @@ docker compose ps
 | `BOOTSTRAP_INVITE_CODE` | 空库首次启动的管理员邀请码 |
 | `AUTO_CREATE_TABLES` | Docker 中为 `false`，由 MySQL 初始化 SQL 建表 |
 | `UPLOAD_DIR` | 附件目录，Docker 中为 `/app/uploads` |
+| `OCR_ENABLED` | 是否启用图片/扫描 PDF OCR，默认 `true` |
+| `ASR_ENGINE` | `auto`、`vosk` 或 `windows-speech`；Docker 中固定为 `vosk` |
+| `ASR_TIMEOUT_SECONDS` | 单次录音或音视频转写超时，默认 180 秒 |
 
 `backend/app/database/init.sql` 会先删除同名业务表再创建，只适合空数据卷首次初始化。不要把该脚本重复执行到已有生产库。修改 `SENSITIVE_FIELD_KEY` 会导致已有加密佣金无法解密。
 
@@ -183,10 +191,11 @@ docker compose start backend
 
 ## 当前能力边界
 
-- AI 文本结构化使用本地规则模拟，不调用第三方 NLP，结果必须人工核对。
-- 图片和音频可以保存原件，但图片 OCR、扫描 PDF OCR 和音视频 ASR 没有接入真实服务，不会伪造识别文字。
-- H5 语音依赖 Edge/Chrome 浏览器识别和麦克风权限；App 语音依赖原生语音模块。当前无网络时语音识别可用性取决于浏览器或系统能力。
-- 移动端只在 H5 上完成核心流程验收，未完成真实 Android/iOS 原生运行验收。
+- AI 文本结构化仍使用本地规则，不调用第三方大模型，结果必须人工核对。
+- 本机已用真实中文图片、图片型 PDF、WAV 和 MP4 验证 OCR、扫描 PDF OCR、音频 ASR、视频 ASR。Windows 识别文本可能有同音字和标点误差。
+- H5 语音已用浏览器假麦克风完成“开始录音 -> 再次点击停止 -> 上传 -> 识别 -> 字段整理”闭环；真实物理麦克风仍需人工听测。生产 H5 必须使用 HTTPS，否则移动浏览器会拒绝麦克风。
+- `uni.chooseFile` 只提供 H5 通用文件选择。原生 App 当前已验证拍照/相册导入，但“系统文件”中的任意格式需要额外接入 Android/iOS 原生文件选择插件，尚未完成真机验收。
+- 移动端只在 H5 上完成核心流程验收，App 仅生成资源构建，未完成真实 Android/iOS 原生运行验收。
 - 原生通知插件 `AssetLibrary-Notification` 未随项目提供。前台运行时可使用浏览器/系统通知兜底；App 被系统杀死后，准点提醒无法保证，正式上线需在 HBuilderX 中接入原生调度插件。
 - 仓库没有 APK、IPA。`npm run build:app` 只生成应用资源，APK 还需要 Android SDK、原生打包和签名；iOS 需要 macOS、证书和描述文件。
 - Excel 导入导出、邀请码、设备禁用、操作日志、回收站、日常计划确认和管理员备份恢复已在桌面 Web 中做过页面验收。
@@ -199,21 +208,24 @@ docker compose start backend
 ```powershell
 Set-Location .\backend
 & '..\.venv\Scripts\python.exe' -m pytest tests -q
+& '..\.venv\Scripts\python.exe' 'scripts\smoke_extraction.py' --speech-wav '<中文语音WAV路径>'
 
 Set-Location .\desktop-app
 npm run build
 
 Set-Location .\mobile-app
 npm run build:h5
+npm run build:app
 ```
 
-后端测试结果为 `2 passed`。桌面 1440x900 和移动 390x844 已完成核心页面与业务流程验收，包括邀请码、语音优先录入、AI 规则提取、计划与每日复盘、任意格式资料入库/正文提取、资料详情、历史、回收站、管理员统计、设备、日志、备份下载与合并恢复。
+后端测试结果为 `4 passed`。桌面 1440x900 和移动 390x844 已完成核心页面与业务流程验收，包括邀请码、语音优先录入、AI 规则提取、计划与每日复盘、资料原格式入库/正文提取、资料详情、历史、回收站、管理员统计、设备、日志、备份下载与合并恢复。真实提取烟测依次通过图片 OCR、扫描 PDF OCR、音频 ASR、视频 ASR。
 
 未在当前环境验证：
 
 - Docker Compose、MySQL 8 和 Redis 的真实联调，因为本机没有可用 Docker。
 - APK、IPA、iOS 签名和 Android 原生运行。
-- 第三方 OCR、ASR、推送、代码签名、自动更新和商店发布。
+- 推送、代码签名、自动更新和商店发布仍未接入；Docker 中的 Vosk/OCR 运行尚未实际启动验证。
+- 当前电脑没有 Docker CLI、WSL Linux 发行版、MySQL、Redis、Java、Android SDK 或 HBuilderX，因此不能把 Compose 启动、MySQL 持久化、Redis 实读写、APK 和真机结果标记为已验证。
 - 生产 HTTPS 证书链和外部域名访问。
 
 ## 上线前最小检查
@@ -223,3 +235,4 @@ npm run build:h5
 3. 使用真实 HTTPS 域名，限制来源，不要把设备 ID 鉴权直接裸露在公网。
 4. 执行一次数据库和附件恢复演练，确认备份可用。
 5. 补原生通知插件、代码签名和正式应用图标，再分发安装包或移动安装包。
+6. 在 Android/iOS 原生工程中补系统文件选择插件，并用真机验证麦克风、拍照、相册、系统文件上传和后台识别。

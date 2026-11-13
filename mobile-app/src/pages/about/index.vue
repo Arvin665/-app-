@@ -19,13 +19,13 @@
         </view>
         <view class="capability-item">
           <view class="capability-icon active"><Mic :size="18" /></view>
-          <text class="capability-title">语音输入</text>
-          <text class="capability-state">按环境</text>
+          <text class="capability-title">语音 / 音视频</text>
+          <text class="capability-state" :class="{ 'pending-text': !asrAvailable }">{{ asrAvailable ? "离线识别" : "待配置" }}</text>
         </view>
         <view class="capability-item">
-          <view class="capability-icon pending"><ScanText :size="18" /></view>
+          <view class="capability-icon" :class="ocrAvailable ? 'active' : 'pending'"><ScanText :size="18" /></view>
           <text class="capability-title">图片 OCR</text>
-          <text class="capability-state pending-text">待接入</text>
+          <text class="capability-state" :class="{ 'pending-text': !ocrAvailable }">{{ ocrAvailable ? "本地可用" : "待配置" }}</text>
         </view>
       </view>
 
@@ -44,7 +44,7 @@
             <view class="rule-symbol"><ScanText :size="18" /></view>
             <view class="rule-copy">
               <text class="rule-title">能识别的先整理</text>
-              <text class="rule-note">TXT、CSV、XLSX、DOCX、PPTX、带文本层 PDF 等可提取可检索正文。</text>
+              <text class="rule-note">TXT、CSV、XLSX、DOCX、PPTX、PDF、图片，以及音频和视频音轨都可以提取可检索正文。</text>
             </view>
           </view>
           <view class="rule-row">
@@ -74,8 +74,9 @@
         <text class="section-title">当前边界</text>
         <view class="boundary-list">
           <view class="boundary-row"><view class="dot"></view><text>后端文字理解使用本地规则，不调用第三方大模型，结果需要人工核对。</text></view>
-          <view class="boundary-row"><view class="dot"></view><text>图片和扫描 PDF 目前只保存原件与缩略图，不伪造 OCR 文字。</text></view>
-          <view class="boundary-row"><view class="dot"></view><text>H5 语音依赖 Edge/Chrome 浏览器识别；App 语音依赖原生语音模块。</text></view>
+          <view class="boundary-row"><view class="dot"></view><text>图片和扫描 PDF 使用服务器本地 OCR，识别结果可搜索，也需要人工核对。</text></view>
+          <view class="boundary-row"><view class="dot"></view><text>H5 录音会转成 WAV 后交给后台离线识别；App 优先使用原生语音模块。</text></view>
+          <view class="boundary-row"><view class="dot"></view><text>音频和视频先在本机提取音轨，再转写为可搜索文字。</text></view>
           <view class="boundary-row"><view class="dot"></view><text>{{ capabilityNotice }}</text></view>
         </view>
       </view>
@@ -104,8 +105,10 @@ import PageHeader from "../../components/PageHeader.vue";
 import { request } from "../../services/api";
 
 const capabilities = ref(null);
+const ocrAvailable = computed(() => Boolean(capabilities.value?.ocr?.available));
+const asrAvailable = computed(() => Boolean(capabilities.value?.asr?.available));
 const capabilityNotice = computed(
-  () => capabilities.value?.notice || "第三方 OCR/ASR 服务未配置；当前能力以原件存放和本地规则整理为主。",
+  () => capabilities.value?.notice || "正在读取后台识别能力；原件仍会安全保存。",
 );
 
 onLoad(async () => {

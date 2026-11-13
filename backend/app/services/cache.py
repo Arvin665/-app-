@@ -12,6 +12,12 @@ class AuthCache:
     def __init__(self) -> None:
         self._client = redis.Redis.from_url(settings.redis_url, decode_responses=True, socket_timeout=1)
 
+    def ping(self) -> bool:
+        try:
+            return bool(self._client.ping())
+        except RedisError:
+            return False
+
     def get_device(self, device_id: str) -> Optional[str]:
         try:
             return self._client.get(f"device-auth:{device_id}")

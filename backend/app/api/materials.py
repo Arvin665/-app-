@@ -7,6 +7,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
+from starlette.concurrency import run_in_threadpool
 
 from app.api.attachments import MAX_FILE_SIZE, make_thumbnail, public_url
 from app.api.deps import CurrentDevice, DbSession
@@ -123,7 +124,6 @@ async def upload_material(
     if not content:
         raise HTTPException(status_code=422, detail="文件内容为空")
 
-    extraction = extract_material(content, file.filename, file.content_type, module)
     material_id = new_id()
     suffix = Path(file.filename).suffix.lower()[:20]
     relative_dir = Path("materials") / module / material_id
@@ -131,6 +131,10 @@ async def upload_material(
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / f"{material_id}{suffix}"
     target_path.write_bytes(content)
+    # 先落盘再识别。识别服务超时或异常时，用户上传的原件仍然存在。
+    extraction = await run_in_threadpool(
+        extract_material, content, file.filename, file.content_type, module
+    )
 
     thumbnail_path: Optional[Path] = None
     if extraction["file_type"] == "image":

@@ -284,6 +284,7 @@ import {
   FileText,
   LoaderCircle,
   Mic,
+  Plus,
   Save,
   Square,
   TextQuote,

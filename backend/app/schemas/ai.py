@@ -38,3 +38,9 @@ class FieldParseResponse(BaseModel):
     value: Any = None
     confidence: float
     note: Optional[str] = None
+
+
+class TranscriptionResponse(BaseModel):
+    text: str
+    provider: str
+    language: str

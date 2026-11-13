@@ -44,7 +44,14 @@ services:
       BOOTSTRAP_INVITE_CODE: ${BOOTSTRAP_INVITE_CODE:-246810}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
-      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      AI_PROVIDER: ${AI_PROVIDER:-local}
+      OCR_ENABLED: ${OCR_ENABLED:-true}
+      OCR_MAX_PDF_PAGES: ${OCR_MAX_PDF_PAGES:-30}
+      OCR_MIN_TEXT_CHARS: ${OCR_MIN_TEXT_CHARS:-20}
+      ASR_ENGINE: ${ASR_ENGINE:-vosk}
+      VOSK_MODEL_PATH: /app/models/vosk-model-small-cn-0.22
+      ASR_TIMEOUT_SECONDS: ${ASR_TIMEOUT_SECONDS:-180}
+      FFMPEG_BINARY: /usr/bin/ffmpeg
       UPLOAD_DIR: /app/uploads
       AUTO_CREATE_TABLES: "false"
       TZ: Asia/Shanghai

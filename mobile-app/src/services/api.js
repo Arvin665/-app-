@@ -64,7 +64,7 @@ export function upload(path, filePath, formData = {}) {
       name: "file",
       formData,
       header: { "X-Device-ID": getDeviceId() },
-      timeout: 60000,
+      timeout: 300000,
       success: (response) => {
         let data = response.data;
         try {
@@ -81,6 +81,32 @@ export function upload(path, filePath, formData = {}) {
       fail: (error) => reject(new ApiError(error.errMsg || "文件上传失败", 0, error)),
     });
   });
+}
+
+export async function transcribeAudio(blob) {
+  const formData = new FormData();
+  formData.append("file", blob, `dictation-${Date.now()}.wav`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 120000);
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}/ai/transcribe`, {
+      method: "POST",
+      headers: { "X-Device-ID": getDeviceId() },
+      body: formData,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    const message = error?.name === "AbortError" ? "语音识别超时，请重试" : "录音上传失败，请检查网络后重试";
+    throw new ApiError(message, 0, error);
+  } finally {
+    clearTimeout(timer);
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new ApiError(readableError({ statusCode: response.status, data }), response.status, data);
+  }
+  return data;
 }
 
 export function download(path) {

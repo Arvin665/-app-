@@ -1,3 +1,6 @@
+import { transcribeAudio } from "./api";
+import { canRecordWav, startWavRecorder } from "./audioRecorder";
+
 function browserRecognition() {
   if (typeof window === "undefined") return null;
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
@@ -6,6 +9,7 @@ function browserRecognition() {
 const EMPTY_RESULT_MESSAGE = "没有听到内容，请再说一次";
 const BROWSER_STOP_FALLBACK_MS = 1600;
 const NATIVE_STOP_FALLBACK_MS = 4000;
+const SERVER_ASR_STOP_WAIT_MS = 125000;
 let currentSession = null;
 
 function notify(callback, ...args) {
@@ -29,6 +33,9 @@ function speechError(value) {
   if (normalized.includes("audio-capture") || normalized.includes("microphone")) {
     return new Error("没有找到可用麦克风，请检查设备设置");
   }
+  if (normalized.includes("notfound") || normalized.includes("devicesnotfound")) {
+    return new Error("没有找到可用麦克风，请检查设备设置");
+  }
   if (normalized.includes("network") || normalized.includes("网络")) {
     return new Error("网络不稳定，语音识别未完成，请重试");
   }
@@ -39,7 +46,11 @@ function speechError(value) {
 }
 
 export function dictationAvailable() {
-  return Boolean(browserRecognition() || (typeof plus !== "undefined" && plus.speech?.startRecognize));
+  return Boolean(
+    browserRecognition()
+    || canRecordWav()
+    || (typeof plus !== "undefined" && plus.speech?.startRecognize),
+  );
 }
 
 export function startDictation({
@@ -52,7 +63,8 @@ export function startDictation({
 } = {}) {
   const Recognition = browserRecognition();
   const nativeSpeech = typeof plus !== "undefined" && plus.speech?.startRecognize ? plus.speech : null;
-  if (!Recognition && !nativeSpeech) return null;
+  const preferServerRecognition = !nativeSpeech && canRecordWav();
+  if (!Recognition && !nativeSpeech && !preferServerRecognition) return null;
 
   if (currentSession && currentSession.state !== "finished") currentSession.abort("replaced");
 
@@ -116,8 +128,15 @@ export function startDictation({
       setState("stopping");
       clearTimeout(stopTimer);
       stopTimer = setTimeout(
-        () => complete("stopped-timeout", engineError),
-        nativeSpeech && !Recognition ? NATIVE_STOP_FALLBACK_MS : BROWSER_STOP_FALLBACK_MS,
+        () => complete(
+          "stopped-timeout",
+          engineError || (preferServerRecognition ? new Error("语音识别超时，请重试") : null),
+        ),
+        preferServerRecognition
+          ? SERVER_ASR_STOP_WAIT_MS
+          : nativeSpeech && !Recognition
+            ? NATIVE_STOP_FALLBACK_MS
+            : BROWSER_STOP_FALLBACK_MS,
       );
       try {
         stopEngine?.();
@@ -142,6 +161,66 @@ export function startDictation({
   };
 
   currentSession = session;
+
+  if (preferServerRecognition) {
+    let recorder = null;
+    let finalizePromise = null;
+
+    const finalizeRecording = async () => {
+      if (finalizePromise || abortRequested || !recorder) return finalizePromise;
+      finalizePromise = (async () => {
+        const activeRecorder = recorder;
+        recorder = null;
+        let audioBlob;
+        try {
+          audioBlob = activeRecorder.stop();
+        } catch (error) {
+          engineError = speechError(error);
+          complete("error", engineError);
+          return;
+        }
+        if (!audioBlob || audioBlob.size <= 44) {
+          complete("error", new Error(EMPTY_RESULT_MESSAGE));
+          return;
+        }
+        try {
+          const result = await transcribeAudio(audioBlob);
+          transcript = String(result?.text || "").trim();
+          complete(stopRequested ? "stopped" : "ended");
+        } catch (error) {
+          engineError = speechError(error);
+          complete("error", engineError);
+        }
+      })();
+      return finalizePromise;
+    };
+
+    stopEngine = () => {
+      if (recorder) finalizeRecording();
+    };
+    abortEngine = () => {
+      recorder?.abort();
+      recorder = null;
+    };
+
+    startWavRecorder()
+      .then((instance) => {
+        recorder = instance;
+        if (abortRequested) {
+          recorder.abort();
+          recorder = null;
+          return;
+        }
+        if (!stopRequested) setState("listening");
+        if (stopRequested) finalizeRecording();
+      })
+      .catch((error) => {
+        if (abortRequested) return;
+        engineError = speechError(error);
+        complete("error", engineError);
+      });
+    return session;
+  }
 
   if (Recognition) {
     let recognition;

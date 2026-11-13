@@ -488,7 +488,7 @@ def extract_response(text: str, module: str, provider_note: str = "") -> dict[st
     result = extract_text(text, module)
     fields = result["fields"]
     missing = [field for field in MODULE_REQUIRED_FIELDS[module] if fields.get(field) in (None, "")]
-    note = "当前使用本地规则模拟实现，未调用第三方 OCR/ASR/NLP；所有结果均需人工核对。"
+    note = "正文识别使用本地 OCR/ASR，字段结构化使用本地规则；所有结果均需人工核对。"
     if provider_note:
         note = f"{note} {provider_note}"
     return {

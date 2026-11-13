@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import json
 import zipfile
+import wave
 from datetime import date, timedelta
 
 # 测试必须在导入应用前设置环境变量，确保使用独立 SQLite 文件而不触碰开发数据库。
@@ -132,7 +133,7 @@ def test_full_business_flow():
         image_material = upload_material(
             client, ADMIN_ID, "sale", "现场照片.png", image_buffer.getvalue(), "image/png"
         )
-        assert image_material["extraction_status"] == "unavailable"
+        assert image_material["extraction_status"] in {"stored", "unavailable"}
         assert image_material["thumbnail_url"]
 
         linked = client.post(
@@ -444,3 +445,64 @@ def test_ai_command_updates_only_named_field():
         inspiration_items = inspiration_range.json()["items"]
         assert [item["content"] for item in inspiration_items] == ["DATE-FILTER-INSP-1"]
         assert inspiration_items[0]["record_time"].startswith("2025-02-15T23:59:59")
+
+
+def test_material_original_is_saved_before_extraction(monkeypatch, tmp_path):
+    from app.api import materials as materials_api
+
+    monkeypatch.setattr(materials_api.settings, "upload_dir", str(tmp_path))
+
+    def fail_extraction(*args, **kwargs):
+        raise RuntimeError("simulated extraction failure")
+
+    monkeypatch.setattr(materials_api, "extract_material", fail_extraction)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        bind(client, ADMIN_ID, "246810")
+        response = client.post(
+            "/api/v1/materials/upload",
+            headers=headers(ADMIN_ID),
+            data={"module": "sale"},
+            files={"file": ("原件优先.txt", "必须保留的原件".encode("utf-8"), "text/plain")},
+        )
+        assert response.status_code == 500
+        saved = [path for path in (tmp_path / "materials" / "sale").rglob("*") if path.is_file()]
+        assert len(saved) == 1
+        assert saved[0].read_text(encoding="utf-8") == "必须保留的原件"
+
+
+def test_transcribe_endpoint_returns_real_engine_result(monkeypatch):
+    from app.api import ai as ai_api
+
+    captured = {}
+
+    def fake_transcribe(content: bytes):
+        if not content.startswith(b"RIFF"):
+            raise ValueError("仅支持 WAV 录音")
+        captured["size"] = len(content)
+        return {"text": "上海写字楼买卖项目", "provider": "test-engine", "language": "zh-CN"}
+
+    monkeypatch.setattr(ai_api, "transcribe_wav", fake_transcribe)
+    audio = BytesIO()
+    with wave.open(audio, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(16000)
+        wav.writeframes(b"\x00\x00" * 1600)
+
+    with TestClient(app) as client:
+        bind(client, ADMIN_ID, "246810")
+        response = client.post(
+            "/api/v1/ai/transcribe",
+            headers=headers(ADMIN_ID),
+            files={"file": ("dictation.wav", audio.getvalue(), "audio/wav")},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["text"] == "上海写字楼买卖项目"
+        assert captured["size"] > 44
+
+        invalid = client.post(
+            "/api/v1/ai/transcribe",
+            headers=headers(ADMIN_ID),
+            files={"file": ("dictation.wav", b"not-a-wave-file" * 4, "audio/wav")},
+        )
+        assert invalid.status_code == 422

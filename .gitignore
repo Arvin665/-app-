@@ -7,6 +7,7 @@ venv/
 .env
 backend/uploads/
 backend/tests/test_artifacts/
+backend/models/
 
 # Node
 node_modules/
