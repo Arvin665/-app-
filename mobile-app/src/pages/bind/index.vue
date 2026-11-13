@@ -26,20 +26,38 @@
       </view>
 
       <view class="code-shell">
-        <text class="code-label">邀请码</text>
+        <view class="code-head">
+          <text class="code-label">邀请码</text>
+          <text class="code-count">{{ inviteCode.length }} / 6</text>
+        </view>
         <input
           v-model="inviteCode"
           class="code-input"
           type="number"
           maxlength="6"
           focus
-          placeholder="000000"
+          placeholder="请输入 6 位数字"
+          placeholder-style="color: #87948f; font-size: 14px; font-weight: 500; letter-spacing: 0;"
           @input="filterCode"
           @confirm="submit"
         />
         <view class="code-progress">
           <view v-for="index in 6" :key="index" class="progress-dot" :class="{ filled: inviteCode.length >= index }"></view>
         </view>
+      </view>
+
+      <view v-if="bootstrapInviteHint" class="bootstrap-hint">
+        <view class="hint-copy">
+          <text class="hint-label">本地首次使用</text>
+          <view class="hint-line">
+            <text class="hint-code">{{ bootstrapInviteHint }}</text>
+            <text class="hint-desc">默认管理员邀请码</text>
+          </view>
+        </view>
+        <button class="hint-fill pressable" @tap="fillBootstrapInvite">
+          <Check :size="14" />
+          <text>一键填入</text>
+        </button>
       </view>
 
       <button class="bind-button pressable" :disabled="loading || inviteCode.length !== 6" @tap="submit">
@@ -60,7 +78,7 @@
 
 <script setup>
 import { ref } from "vue";
-import { ArrowRight, KeyRound, LoaderCircle, ShieldCheck } from "@lucide/vue";
+import { ArrowRight, Check, KeyRound, LoaderCircle, ShieldCheck } from "@lucide/vue";
 import ModuleMark from "../../components/ModuleMark.vue";
 import { moduleList } from "../../data/modules";
 import { bindDevice, getSession } from "../../services/session";
@@ -68,9 +86,16 @@ import { bindDevice, getSession } from "../../services/session";
 const inviteCode = ref("");
 const loading = ref(false);
 const previewModules = moduleList;
+const bootstrapInviteHint = import.meta.env.DEV
+  ? String(import.meta.env.VITE_BOOTSTRAP_INVITE_HINT || "246810").replace(/\D/g, "").slice(0, 6)
+  : "";
 
 function filterCode(event) {
   inviteCode.value = String(event.detail.value || "").replace(/\D/g, "").slice(0, 6);
+}
+
+function fillBootstrapInvite() {
+  inviteCode.value = bootstrapInviteHint;
 }
 
 async function submit() {
@@ -134,11 +159,12 @@ if (session?.device_id) {
 }
 .module-preview {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
   margin-top: 26px;
 }
 .preview-item {
+  min-width: 0;
   min-height: 64px;
   display: flex;
   align-items: center;
@@ -205,40 +231,108 @@ if (session?.device_id) {
 }
 .code-shell {
   margin-top: 19px;
-  padding: 12px 13px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.06);
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 10px;
+  background: #f8fbfa;
+}
+.code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
 }
 .code-label {
   display: block;
-  color: #a9c0b9;
-  font-size: 8px;
+  color: #52615c;
+  font-size: 11px;
   font-weight: 650;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
+}
+.code-count {
+  color: #8a9691;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 .code-input {
   width: 100%;
-  height: 52px;
-  color: #ffffff;
-  font-size: 31px;
+  height: 54px;
+  padding: 0 14px;
+  border: 1px solid #cbd9d4;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #16221f;
+  font-size: 23px;
   font-weight: 700;
-  letter-spacing: 8px;
+  letter-spacing: 6px;
   text-align: center;
 }
 .code-progress {
   display: flex;
   justify-content: center;
   gap: 6px;
+  margin-top: 10px;
 }
 .progress-dot {
   width: 22px;
   height: 2px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.13);
+  background: #d9e4e0;
 }
 .progress-dot.filled {
-  background: #8ee0cc;
+  background: #0b7565;
+}
+.bootstrap-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 10px 11px;
+  border: 1px solid rgba(169, 238, 224, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+}
+.hint-copy {
+  min-width: 0;
+}
+.hint-label {
+  display: block;
+  color: #8fa8a0;
+  font-size: 9px;
+}
+.hint-line {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-top: 3px;
+}
+.hint-code {
+  color: #d5f4eb;
+  font-size: 16px;
+  font-weight: 720;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+}
+.hint-desc {
+  color: #9fb4ad;
+  font-size: 9px;
+}
+.hint-fill {
+  height: 32px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid rgba(169, 238, 224, 0.21);
+  border-radius: 7px;
+  background: rgba(213, 244, 235, 0.09);
+  color: #d5f4eb;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 30px;
 }
 .bind-button {
   width: 100%;
