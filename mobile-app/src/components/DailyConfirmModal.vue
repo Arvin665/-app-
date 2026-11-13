@@ -46,12 +46,12 @@
 
           <view v-if="editingId === plan.record_id" class="note-box">
             <textarea v-model="note" class="note-input" :placeholder="statusPlaceholder" maxlength="500" auto-height />
-            <text v-if="voiceKind === 'note'" class="voice-live">{{ voiceInterim || "正在听，请说这一步的情况..." }}</text>
+            <text v-if="voiceKind === 'note'" class="voice-live">{{ voiceInterim || (voicePhase === "stopping" ? "正在收尾，请稍等..." : "正在听，再按一下结束...") }}</text>
             <view class="note-actions">
-              <view class="note-voice pressable" :class="{ recording: voiceKind === 'note' }" @tap="toggleVoice('note')">
+              <view class="note-voice pressable" :class="{ recording: voiceKind === 'note', stopping: voiceKind === 'note' && voicePhase === 'stopping' }" @tap="toggleVoice('note')">
                 <Square v-if="voiceKind === 'note'" :size="13" fill="currentColor" />
                 <Mic v-else :size="15" />
-                <text>{{ voiceKind === "note" ? "停止" : "说进展" }}</text>
+                <text>{{ voiceKind === "note" ? (voicePhase === "stopping" ? "收尾中" : "停止") : "说进展" }}</text>
               </view>
               <view class="note-buttons">
                 <button class="note-cancel" @tap="cancelNote">取消</button>
@@ -70,7 +70,7 @@
             <text class="insight-kicker">TODAY'S NOTE</text>
             <text class="insight-label">今天整体留下了什么</text>
           </view>
-          <view v-if="!locked" class="insight-mic pressable" :class="{ recording: voiceKind === 'insight' }" @tap="toggleVoice('insight')">
+          <view v-if="!locked" class="insight-mic pressable" :class="{ recording: voiceKind === 'insight', stopping: voiceKind === 'insight' && voicePhase === 'stopping' }" @tap="toggleVoice('insight')">
             <Square v-if="voiceKind === 'insight'" :size="13" fill="currentColor" />
             <Mic v-else :size="15" />
           </view>
@@ -83,7 +83,7 @@
           auto-height
           :disabled="locked"
         />
-        <text v-if="voiceKind === 'insight'" class="voice-live">{{ voiceInterim || "正在听今天的心得..." }}</text>
+        <text v-if="voiceKind === 'insight'" class="voice-live">{{ voiceInterim || (voicePhase === "stopping" ? "正在收尾，请稍等..." : "正在听今天的心得，再按一下结束...") }}</text>
       </view>
 
       <view v-if="locked" class="locked-state">
@@ -128,6 +128,7 @@ const previousEditingId = ref("");
 const note = ref("");
 const insight = ref("");
 const voiceKind = ref("");
+const voicePhase = ref("idle");
 const voiceInterim = ref("");
 let voiceSession = null;
 
@@ -141,7 +142,7 @@ const statusPlaceholder = computed(() => {
 
 function selectStatus(plan, item) {
   if (props.locked) return;
-  stopVoice();
+  abortVoice();
   previousStatus.value = Number(localStatuses.value[plan.record_id] ?? plan.ext_field_5 ?? 0);
   previousEditingId.value = plan.record_id;
   localStatuses.value[plan.record_id] = item.value;
@@ -162,7 +163,7 @@ function cancelNote() {
   }
   editingId.value = "";
   note.value = "";
-  stopVoice();
+  abortVoice();
 }
 
 function saveNote(plan) {
@@ -173,7 +174,7 @@ function saveNote(plan) {
   emit("update-plan", { plan, status: editingStatus.value, note: note.value.trim() });
   editingId.value = "";
   note.value = "";
-  stopVoice();
+  abortVoice();
 }
 
 function latestNote(value) {
@@ -202,9 +203,13 @@ function toggleVoice(kind) {
     return;
   }
   voiceKind.value = kind;
+  voicePhase.value = "listening";
   voiceInterim.value = "";
   voiceSession = startDictation({
     continuous: false,
+    onStateChange: (state) => {
+      if (voiceKind.value === kind) voicePhase.value = state;
+    },
     onInterim: (text) => { voiceInterim.value = text; },
     onFinal: (text) => {
       if (!text.trim()) return;
@@ -214,25 +219,39 @@ function toggleVoice(kind) {
     onError: (error) => uni.showToast({ title: error.message || "语音识别暂不可用", icon: "none" }),
     onEnd: () => {
       voiceKind.value = "";
+      voicePhase.value = "idle";
       voiceInterim.value = "";
       voiceSession = null;
     },
   });
   if (!voiceSession) {
     voiceKind.value = "";
+    voicePhase.value = "idle";
     voiceInterim.value = "";
   }
 }
 
-function stopVoice() {
-  voiceSession?.stop?.();
-  voiceSession = null;
+async function stopVoice() {
+  const session = voiceSession;
+  if (!session) return null;
+  voicePhase.value = "stopping";
+  const result = await session.stop?.();
+  if (voiceSession === session) voiceSession = null;
+  return result;
+}
+
+function abortVoice() {
+  if (voiceSession) {
+    voiceSession.abort?.();
+    return;
+  }
   voiceKind.value = "";
+  voicePhase.value = "idle";
   voiceInterim.value = "";
 }
 
 function close() {
-  stopVoice();
+  abortVoice();
   emit("close");
 }
 
@@ -242,7 +261,7 @@ function archive() {
 }
 
 watch(() => props.visible, (visible) => {
-  if (!visible) stopVoice();
+  if (!visible) abortVoice();
 });
 
 onUnmounted(() => {
@@ -479,6 +498,11 @@ onUnmounted(() => {
   background: var(--warning-bg);
   color: var(--warning);
   animation: soft-pulse 1.8s infinite;
+}
+.note-voice.stopping,
+.insight-mic.stopping {
+  animation: none;
+  opacity: 0.72;
 }
 .note-buttons {
   display: flex;

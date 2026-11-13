@@ -20,14 +20,14 @@
           </view>
         </view>
 
-        <view class="voice-capture pressable" :class="{ recording: voice.active && voice.kind === 'main' }" @tap="toggleMainVoice">
+        <view class="voice-capture pressable" :class="{ recording: voice.active && voice.kind === 'main', stopping: voice.active && voice.kind === 'main' && voice.phase === 'stopping' }" @tap="toggleMainVoice">
           <view class="voice-mark">
             <Square v-if="voice.active && voice.kind === 'main'" :size="21" fill="currentColor" />
             <Mic v-else :size="25" />
           </view>
           <view class="voice-copy">
             <text class="voice-title">{{ mainVoiceTitle }}</text>
-            <text class="voice-note">{{ voice.active && voice.kind === "main" ? voice.interim || "正在听，请继续说..." : voiceStatus }}</text>
+            <text class="voice-note">{{ mainVoiceNote }}</text>
           </view>
           <view v-if="voice.active && voice.kind === 'main'" class="voice-wave">
             <view v-for="index in 4" :key="index" class="wave-bar" :style="{ animationDelay: `${index * 90}ms` }"></view>
@@ -255,7 +255,7 @@
           <button class="editor-voice pressable" :class="{ recording: editor.voiceActive }" @tap="voiceCurrentEditor">
             <Square v-if="editor.voiceActive" :size="17" fill="currentColor" />
             <Mic v-else :size="18" />
-            <text>{{ editor.voiceActive ? "停止" : "语音填写" }}</text>
+            <text>{{ editor.voiceActive ? (voice.phase === "stopping" ? "收尾中" : "停止") : "语音填写" }}</text>
           </button>
           <button class="editor-save pressable" @tap="applyEditor">
             <Check :size="18" />
@@ -334,7 +334,7 @@ const saving = ref(false);
 const uploadingCount = ref(0);
 const pendingFiles = ref([]);
 const materials = ref([]);
-const voice = reactive({ active: false, kind: "", field: "", interim: "" });
+const voice = reactive({ active: false, phase: "idle", kind: "", field: "", interim: "" });
 const editor = reactive({
   visible: false,
   field: null,
@@ -359,8 +359,16 @@ const coreFields = computed(() => allFields.value.filter((field) => field.core))
 const extraFields = computed(() => allFields.value.filter((field) => !field.core));
 const filledCoreCount = computed(() => coreFields.value.filter((field) => hasValue(form.value[field.key])).length);
 const mainVoiceTitle = computed(() => {
+  if (voice.active && voice.kind === "main" && voice.phase === "stopping") return "正在收尾，请稍等";
   if (voice.active && voice.kind === "main") return "正在听你说";
   return "点一下，说完整情况";
+});
+const mainVoiceNote = computed(() => {
+  if (voice.active && voice.kind === "main") {
+    if (voice.phase === "stopping") return voice.interim || "正在整理刚才的内容，请稍等";
+    return voice.interim || "正在听，再按一下结束并整理";
+  }
+  return voiceStatus.value;
 });
 const summaryTitle = computed(() => {
   if (editingId.value) return `正在补充已有${config.value.visual.short}记录`;
@@ -493,7 +501,7 @@ function toggleMainVoice() {
 }
 
 function startVoice(kind, field = null) {
-  if (analyzing.value) return;
+  if (analyzing.value || voice.active) return;
   if (!dictationAvailable()) {
     uni.showModal({
       title: "当前环境没有语音识别",
@@ -503,13 +511,21 @@ function startVoice(kind, field = null) {
     return;
   }
   voice.active = true;
+  voice.phase = "listening";
   voice.kind = kind;
   voice.field = field?.key || "";
   voice.interim = "";
-  if (kind === "main") voiceStatus.value = "正在听，说完点一下停止";
-  else voiceStatus.value = `正在听：${field.label}`;
+  if (kind === "main") voiceStatus.value = "正在听，再按一下结束并整理";
+  else voiceStatus.value = `正在听：${field.label}，再按一下结束`;
   voiceSession = startDictation({
     continuous: kind === "main",
+    onStateChange: (state) => {
+      if (voice.kind !== kind) return;
+      voice.phase = state;
+      if (state === "stopping") {
+        voiceStatus.value = kind === "main" ? "正在收尾，请稍等" : `正在收尾并整理「${field.label}」`;
+      }
+    },
     onInterim: (text) => {
       voice.interim = text;
       if (kind === "field" && editor.visible) editor.value = text;
@@ -526,7 +542,10 @@ function startVoice(kind, field = null) {
     onEnd: () => {
       if (voice.kind === kind) {
         voice.active = false;
+        voice.phase = "idle";
         voice.kind = "";
+        voice.field = "";
+        voice.interim = "";
       }
       if (kind === "field") editor.voiceActive = false;
       voiceSession = null;
@@ -534,21 +553,37 @@ function startVoice(kind, field = null) {
   });
   if (!voiceSession) {
     voice.active = false;
+    voice.phase = "idle";
     voice.kind = "";
+    voice.field = "";
     voiceStatus.value = "麦克风没有启动，可以稍后重试或使用文字输入";
   }
 }
 
-function stopVoice() {
-  if (voiceSession) voiceSession.stop();
-  else {
+async function stopVoice() {
+  const session = voiceSession;
+  if (!session) {
     voice.active = false;
+    voice.phase = "idle";
     voice.kind = "";
+    voice.field = "";
+    return null;
   }
+  voice.phase = "stopping";
+  voiceStatus.value = voice.kind === "main" ? "正在收尾，请稍等" : "正在收尾并整理这一项";
+  const result = await session.stop();
+  if (voiceSession === session) voiceSession = null;
+  return result;
 }
 
-function speakField(field) {
-  if (voice.active) stopVoice();
+async function speakField(field) {
+  if (voice.active) {
+    if (voice.kind === "field" && voice.field === field.key) {
+      await stopVoice();
+      return;
+    }
+    await stopVoice();
+  }
   openEditor(field);
   startVoice("field", field);
 }
@@ -1013,6 +1048,11 @@ onUnload(() => {
 .voice-capture.recording {
   background: #123e35;
   box-shadow: 0 0 0 4px rgba(11, 117, 101, 0.12), 0 12px 28px rgba(22, 34, 31, 0.2);
+}
+.voice-capture.stopping .voice-wave,
+.voice-capture.stopping .voice-mark {
+  animation: none;
+  opacity: 0.72;
 }
 .voice-mark {
   width: 48px;

@@ -30,12 +30,12 @@
           @input="queueSearch"
           @confirm="refresh"
         />
-        <view class="voice-search pressable" :class="{ listening }" @tap="toggleVoiceSearch">
+        <view class="voice-search pressable" :class="{ listening, stopping: voicePhase === 'stopping' }" @tap="toggleVoiceSearch">
           <Square v-if="listening" :size="13" fill="currentColor" />
           <Mic v-else :size="16" />
         </view>
       </view>
-      <text v-if="listening || voiceInterim" class="listening-note">{{ voiceInterim || "正在听，说出要查找的内容..." }}</text>
+      <text v-if="listening || voiceInterim" class="listening-note">{{ voiceInterim || (voicePhase === "stopping" ? "正在收尾，请稍等..." : "正在听，再按一下结束并搜索...") }}</text>
 
       <scroll-view class="filter-scroll" scroll-x :show-scrollbar="false">
         <view class="filter-row">
@@ -113,7 +113,7 @@
 
 <script setup>
 import { computed, ref } from "vue";
-import { onLoad, onPullDownRefresh } from "@dcloudio/uni-app";
+import { onLoad, onPullDownRefresh, onUnload } from "@dcloudio/uni-app";
 import {
   Archive,
   ChevronRight,
@@ -147,6 +147,7 @@ const materialPage = ref(1);
 const loading = ref(false);
 const loadingMore = ref(false);
 const listening = ref(false);
+const voicePhase = ref("idle");
 const voiceInterim = ref("");
 const pageSize = 30;
 let searchTimer = null;
@@ -329,7 +330,7 @@ function openMaterialsLibrary() {
 
 function toggleVoiceSearch() {
   if (listening.value) {
-    voiceSession?.stop?.();
+    stopVoiceSearch();
     return;
   }
   if (!dictationAvailable()) {
@@ -341,9 +342,11 @@ function toggleVoiceSearch() {
     return;
   }
   listening.value = true;
+  voicePhase.value = "listening";
   voiceInterim.value = "";
   voiceSession = startDictation({
     continuous: false,
+    onStateChange: (state) => { voicePhase.value = state; },
     onInterim: (text) => {
       voiceInterim.value = text;
     },
@@ -355,10 +358,21 @@ function toggleVoiceSearch() {
     onError: (error) => uni.showToast({ title: error.message || "语音搜索暂不可用", icon: "none" }),
     onEnd: () => {
       listening.value = false;
+      voicePhase.value = "idle";
       voiceSession = null;
     },
   });
-  if (!voiceSession) listening.value = false;
+  if (!voiceSession) {
+    listening.value = false;
+    voicePhase.value = "idle";
+  }
+}
+
+async function stopVoiceSearch() {
+  const session = voiceSession;
+  if (!session) return;
+  voicePhase.value = "stopping";
+  await session.stop?.();
 }
 
 onLoad((options) => {
@@ -372,6 +386,11 @@ onPullDownRefresh(async () => {
   loadingMore.value = false;
   await (tab.value === "records" ? loadRecords(true) : loadMaterials(true));
   uni.stopPullDownRefresh();
+});
+
+onUnload(() => {
+  clearTimeout(searchTimer);
+  voiceSession?.abort?.();
 });
 </script>
 
@@ -467,6 +486,10 @@ onPullDownRefresh(async () => {
   background: var(--warning-bg);
   color: var(--warning);
   animation: soft-pulse 1.8s infinite;
+}
+.voice-search.stopping {
+  animation: none;
+  opacity: 0.72;
 }
 .listening-note {
   display: block;

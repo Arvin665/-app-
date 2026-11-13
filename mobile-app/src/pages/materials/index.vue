@@ -22,12 +22,12 @@
         @input="queueSearch"
         @confirm="loadMaterials(true)"
       />
-      <view class="search-mic pressable" :class="{ listening }" @tap="toggleVoiceSearch">
+      <view class="search-mic pressable" :class="{ listening, stopping: voicePhase === 'stopping' }" @tap="toggleVoiceSearch">
         <Square v-if="listening" :size="14" fill="currentColor" />
         <Mic v-else :size="17" />
       </view>
     </view>
-    <text v-if="listening || voiceInterim" class="voice-search-line">{{ voiceInterim || "正在听，说出想找的内容..." }}</text>
+    <text v-if="listening || voiceInterim" class="voice-search-line">{{ voiceInterim || (voicePhase === "stopping" ? "正在收尾，请稍等..." : "正在听，再按一下结束并搜索...") }}</text>
 
     <scroll-view class="filter-scroll" scroll-x :show-scrollbar="false">
       <view class="filter-row">
@@ -97,7 +97,7 @@
 
 <script setup>
 import { computed, ref } from "vue";
-import { onLoad, onPullDownRefresh, onShow } from "@dcloudio/uni-app";
+import { onLoad, onPullDownRefresh, onShow, onUnload } from "@dcloudio/uni-app";
 import {
   Archive,
   LoaderCircle,
@@ -132,6 +132,7 @@ const loading = ref(false);
 const loadingMore = ref(false);
 const uploading = ref(false);
 const listening = ref(false);
+const voicePhase = ref("idle");
 const voiceInterim = ref("");
 let searchTimer = null;
 let voiceSession = null;
@@ -215,7 +216,7 @@ function openDetail(material) {
 
 function toggleVoiceSearch() {
   if (listening.value) {
-    voiceSession?.stop?.();
+    stopVoiceSearch();
     return;
   }
   if (!dictationAvailable()) {
@@ -227,9 +228,11 @@ function toggleVoiceSearch() {
     return;
   }
   listening.value = true;
+  voicePhase.value = "listening";
   voiceInterim.value = "";
   voiceSession = startDictation({
     continuous: false,
+    onStateChange: (state) => { voicePhase.value = state; },
     onInterim: (text) => {
       voiceInterim.value = text;
     },
@@ -244,10 +247,21 @@ function toggleVoiceSearch() {
     },
     onEnd: () => {
       listening.value = false;
+      voicePhase.value = "idle";
       voiceSession = null;
     },
   });
-  if (!voiceSession) listening.value = false;
+  if (!voiceSession) {
+    listening.value = false;
+    voicePhase.value = "idle";
+  }
+}
+
+async function stopVoiceSearch() {
+  const session = voiceSession;
+  if (!session) return;
+  voicePhase.value = "stopping";
+  await session.stop?.();
 }
 
 async function chooseModuleForUpload() {
@@ -304,6 +318,11 @@ onPullDownRefresh(async () => {
   loadingMore.value = false;
   await loadMaterials(true);
   uni.stopPullDownRefresh();
+});
+
+onUnload(() => {
+  clearTimeout(searchTimer);
+  voiceSession?.abort?.();
 });
 </script>
 
@@ -407,6 +426,10 @@ onPullDownRefresh(async () => {
   background: var(--warning-bg);
   color: var(--warning);
   animation: soft-pulse 1.8s infinite;
+}
+.search-mic.stopping {
+  animation: none;
+  opacity: 0.72;
 }
 .voice-search-line {
   display: block;

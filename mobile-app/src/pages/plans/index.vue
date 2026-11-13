@@ -260,13 +260,13 @@
           auto-height
           :placeholder="noteModal.placeholder"
         />
-        <text v-if="voice.active && voice.target === 'note'" class="voice-live">{{ voice.interim || "正在听，请说当前进展..." }}</text>
+        <text v-if="voice.active && voice.target === 'note'" class="voice-live">{{ voice.interim || (voice.phase === "stopping" ? "正在收尾，请稍等..." : "正在听，再按一下结束...") }}</text>
 
         <view class="voice-input-row">
-          <view class="voice-input-button pressable" :class="{ recording: voice.active && voice.target === 'note' }" @tap="toggleVoice('note')">
+          <view class="voice-input-button pressable" :class="{ recording: voice.active && voice.target === 'note', stopping: voice.active && voice.target === 'note' && voice.phase === 'stopping' }" @tap="toggleVoice('note')">
             <Square v-if="voice.active && voice.target === 'note'" :size="15" fill="currentColor" />
             <Mic v-else :size="17" />
-            <text>{{ voice.active && voice.target === "note" ? "停止" : "语音说进展" }}</text>
+            <text>{{ voice.active && voice.target === "note" ? (voice.phase === "stopping" ? "收尾中" : "停止") : "语音说进展" }}</text>
           </view>
           <text class="voice-tip">说错也可以继续补充</text>
         </view>
@@ -316,13 +316,13 @@
           auto-height
           placeholder="说明为什么推迟，之后回看会更清楚"
         />
-        <text v-if="voice.active && voice.target === 'postpone'" class="voice-live">{{ voice.interim || "正在听日期、时间和原因..." }}</text>
+        <text v-if="voice.active && voice.target === 'postpone'" class="voice-live">{{ voice.interim || (voice.phase === "stopping" ? "正在收尾，请稍等..." : "正在听日期、时间和原因，再按一下结束...") }}</text>
 
         <view class="voice-input-row">
-          <view class="voice-input-button pressable" :class="{ recording: voice.active && voice.target === 'postpone' }" @tap="toggleVoice('postpone')">
+          <view class="voice-input-button pressable" :class="{ recording: voice.active && voice.target === 'postpone', stopping: voice.active && voice.target === 'postpone' && voice.phase === 'stopping' }" @tap="toggleVoice('postpone')">
             <Square v-if="voice.active && voice.target === 'postpone'" :size="15" fill="currentColor" />
             <Mic v-else :size="17" />
-            <text>{{ voice.active && voice.target === "postpone" ? "停止" : "说新安排" }}</text>
+            <text>{{ voice.active && voice.target === "postpone" ? (voice.phase === "stopping" ? "收尾中" : "停止") : "说新安排" }}</text>
           </view>
           <text class="voice-tip">日期、时间和原因一起说</text>
         </view>
@@ -392,7 +392,7 @@ const dailyModal = ref(false);
 const archiving = ref(false);
 const today = localDate();
 const todayKey = `daily-dismissed-${today}`;
-const voice = reactive({ active: false, target: "", interim: "" });
+const voice = reactive({ active: false, phase: "idle", target: "", interim: "" });
 const loading = computed(() => loadingRecords.value || loadingPlans.value);
 let clock = null;
 let voiceSession = null;
@@ -539,7 +539,7 @@ function openProgress(plan) {
 }
 
 function openStatusSheet(plan, item) {
-  stopVoice();
+  abortVoice();
   noteModal.visible = true;
   noteModal.plan = plan;
   noteModal.status = item.value;
@@ -557,7 +557,7 @@ function closeNote() {
   noteModal.visible = false;
   noteModal.plan = null;
   noteModal.note = "";
-  stopVoice();
+  abortVoice();
 }
 
 async function submitStatus() {
@@ -622,7 +622,7 @@ async function updateFromDaily({ plan, status, note }) {
 }
 
 function openPostpone(plan) {
-  stopVoice();
+  abortVoice();
   postpone.visible = true;
   postpone.plan = plan;
   postpone.date = plan.record_date || today;
@@ -634,7 +634,7 @@ function closePostpone() {
   postpone.visible = false;
   postpone.plan = null;
   postpone.reason = "";
-  stopVoice();
+  abortVoice();
 }
 
 async function submitPostpone() {
@@ -737,10 +737,14 @@ function toggleVoice(target) {
     return;
   }
   voice.active = true;
+  voice.phase = "listening";
   voice.target = target;
   voice.interim = "";
   voiceSession = startDictation({
     continuous: false,
+    onStateChange: (state) => {
+      if (voice.target === target) voice.phase = state;
+    },
     onInterim: (text) => {
       voice.interim = text;
     },
@@ -752,6 +756,7 @@ function toggleVoice(target) {
     },
     onEnd: () => {
       voice.active = false;
+      voice.phase = "idle";
       voice.target = "";
       voice.interim = "";
       voiceSession = null;
@@ -759,14 +764,33 @@ function toggleVoice(target) {
   });
   if (!voiceSession) {
     voice.active = false;
+    voice.phase = "idle";
     voice.target = "";
   }
 }
 
-function stopVoice() {
-  if (voiceSession) voiceSession.stop?.();
-  voiceSession = null;
+async function stopVoice() {
+  const session = voiceSession;
+  if (!session) {
+    voice.active = false;
+    voice.phase = "idle";
+    voice.target = "";
+    voice.interim = "";
+    return null;
+  }
+  voice.phase = "stopping";
+  const result = await session.stop?.();
+  if (voiceSession === session) voiceSession = null;
+  return result;
+}
+
+function abortVoice() {
+  if (voiceSession) {
+    voiceSession.abort?.();
+    return;
+  }
   voice.active = false;
+  voice.phase = "idle";
   voice.target = "";
   voice.interim = "";
 }
@@ -1594,6 +1618,10 @@ onUnload(() => {
   background: var(--warning-bg);
   color: var(--warning);
   animation: soft-pulse 1.8s infinite;
+}
+.voice-input-button.stopping {
+  animation: none;
+  opacity: 0.72;
 }
 .voice-tip {
   color: var(--text-muted);
