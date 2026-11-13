@@ -1,0 +1,19 @@
+{
+  "pages": [
+    { "path": "pages/home/index", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
+    { "path": "pages/bind/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/entry/index", "style": { "navigationStyle": "custom", "enablePullDownRefresh": false } },
+    { "path": "pages/plans/index", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
+    { "path": "pages/history/index", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
+    { "path": "pages/detail/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/profile/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/recycle/index", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
+    { "path": "pages/about/index", "style": { "navigationStyle": "custom" } }
+  ],
+  "globalStyle": {
+    "backgroundColor": "#F5F7FA",
+    "backgroundTextStyle": "dark",
+    "navigationBarTextStyle": "black",
+    "navigationBarBackgroundColor": "#F5F7FA"
+  }
+}

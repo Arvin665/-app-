@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.env
+backend/uploads/
+backend/test_artifacts/
+
+# Node
+node_modules/
+dist/
+dist-electron/
+release/
+.design-preview/
+unpackage/
+*.log
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local databases and backups
+*.db
+*.sqlite3
+backups/
