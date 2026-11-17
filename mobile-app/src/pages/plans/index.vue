@@ -39,8 +39,8 @@
             <Mic v-else :size="23" />
           </view>
           <view class="voice-copy">
-            <text class="voice-title">说一条计划</text>
-            <text class="voice-note">例如：明天下午三点，联系张总确认看房</text>
+            <text class="voice-title">连续说多项计划</text>
+            <text class="voice-note">先拆分核对，再批量创建提醒</text>
           </view>
           <ChevronRight :size="18" class="voice-arrow" />
         </view>
@@ -511,7 +511,7 @@ function rememberDismiss() {
 }
 
 function openPlanVoice() {
-  uni.navigateTo({ url: "/pages/entry/index?module=work&type=待办计划&voice=1" });
+  uni.navigateTo({ url: "/pages/plan-review/index?voice=1" });
 }
 
 function openWorkEntry() {

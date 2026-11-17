@@ -68,6 +68,7 @@ export const modules = {
       { key: "old_expire_date", label: "原租约到期时间", type: "date" },
       { key: "floor", label: "所在楼层", type: "text" },
       { key: "rent_price", label: "租金单价", type: "number", unit: "元/㎡/天" },
+      { key: "ext_field_3", label: "净租金单价", type: "number", unit: "元/㎡/天" },
       { key: "property_fee", label: "物业费标准", type: "number", unit: "元/㎡/月" },
       { key: "rent_free_period", label: "免租期", type: "number", unit: "月" },
       { key: "lease_term", label: "签约年限", type: "number", unit: "年" },

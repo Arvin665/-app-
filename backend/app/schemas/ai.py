@@ -11,6 +11,7 @@ class AIExtractResponse(BaseModel):
     provider: str
     note: str
     corrected_text: Optional[str] = None
+    plan_candidates: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CommandRequest(BaseModel):

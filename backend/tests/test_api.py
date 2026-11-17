@@ -591,3 +591,91 @@ def test_ai_extract_keeps_local_result_when_deepseek_fails(monkeypatch):
         assert result["provider"] == "local-rule"
         assert result["fields"]["deal_total_price"] == "32000.00"
         assert result["corrected_text"] is None
+
+def test_ai_extract_smart_lease_fields_and_end_date():
+    with TestClient(app) as client:
+        bind(client, ADMIN_ID, "246810")
+        response = client.post(
+            "/api/v1/ai/extract",
+            headers=headers(ADMIN_ID),
+            data={
+                "module": "lease",
+                "text": "某某公司在上海中心租赁了2000平方米，签了3年合约，2026年3月1日起租，给了3个月装修免租期，租金每天每平方米8元，净租金每天每平方米6.5元，你自己算下到期时间",
+            },
+        )
+        assert response.status_code == 200, response.text
+        result = response.json()
+        fields = result["fields"]
+        assert fields["company_name"] == "某某公司"
+        assert fields["new_project"] == "上海中心"
+        assert fields["new_area"] == "2000"
+        assert fields["lease_term"] == "3"
+        assert fields["start_date"] == "2026-03-01"
+        assert fields["rent_free_period"] == "3"
+        assert fields["rent_price"] == "8"
+        assert fields["ext_field_3"] == "6.5"
+        assert fields["end_date"] == "2029-02-28"
+
+
+def test_ai_extract_splits_continuous_plan_dictation():
+    with TestClient(app) as client:
+        bind(client, ADMIN_ID, "246810")
+        response = client.post(
+            "/api/v1/ai/extract",
+            headers=headers(ADMIN_ID),
+            data={
+                "module": "work",
+                "intent": "plans",
+                "text": "明天上午十点整理客户清单，下午三点联系张总确认看房。后天提交租金测算，另外下周一提醒我给王总回电话。",
+            },
+        )
+        assert response.status_code == 200, response.text
+        result = response.json()
+        candidates = result["plan_candidates"]
+        assert len(candidates) == 4
+        assert [item["content"] for item in candidates] == [
+            "整理客户清单",
+            "联系张总确认看房",
+            "提交租金测算",
+            "给王总回电话",
+        ]
+        assert candidates[0]["ext_field_4"] == "10:00"
+        assert candidates[1]["ext_field_4"] == "15:00"
+        assert candidates[0]["record_date"] == (date.today() + timedelta(days=1)).isoformat()
+
+
+def test_ai_extract_deepseek_plan_candidates(monkeypatch):
+    from app.api import ai as ai_api
+
+    captured = {}
+    monkeypatch.setattr(ai_api, "deepseek_configured", lambda: True)
+
+    async def fake_extract(text, module, provider_note="", intent="record"):
+        captured.update({"text": text, "module": module, "intent": intent})
+        return {
+            "module": module,
+            "fields": {"record_type": "待办计划", "record_date": "2026-11-18", "content": "整理客户清单"},
+            "confidence": {"content": 0.96},
+            "missing_fields": [],
+            "provider": "deepseek",
+            "note": "已拆分",
+            "corrected_text": "整理客户清单",
+            "plan_candidates": [
+                {"content": "整理客户清单", "record_date": "2026-11-18", "ext_field_4": "10:00", "confidence": 0.96},
+                {"content": "联系张总确认看房", "record_date": "2026-11-18", "ext_field_4": "15:00", "confidence": 0.93},
+            ],
+        }
+
+    monkeypatch.setattr(ai_api, "extract_with_deepseek", fake_extract)
+    with TestClient(app) as client:
+        bind(client, ADMIN_ID, "246810")
+        response = client.post(
+            "/api/v1/ai/extract",
+            headers=headers(ADMIN_ID),
+            data={"module": "work", "intent": "plans", "text": "整理客户清单，联系张总确认看房"},
+        )
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert captured["intent"] == "plans"
+        assert len(result["plan_candidates"]) == 2
+        assert result["plan_candidates"][1]["ext_field_4"] == "15:00"

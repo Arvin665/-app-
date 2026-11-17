@@ -15,8 +15,10 @@ from app.schemas.ai import (
     FieldParseResponse,
     TranscriptionResponse,
 )
-from app.services.ai_extract import apply_command, extract_response, parse_field_value
-from app.services.llm_extract import deepseek_configured, extract_with_deepseek
+from app.services.ai_extract import apply_command, parse_field_value
+from app.services.ai_smart import extract_response_smart as extract_response
+from app.services.ai_smart import extract_with_deepseek_smart as extract_with_deepseek
+from app.services.llm_extract import deepseek_configured
 from app.services.local_asr import LocalAsrUnavailable, local_asr_status, transcribe_wav
 from app.services.media_extract import (
     MediaExtractionUnavailable,
@@ -36,11 +38,14 @@ async def extract_ai_material(
     device: CurrentDevice,
     module: str = Form(...),
     text: Optional[str] = Form(default=None),
+    intent: str = Form(default="record"),
     file: Optional[UploadFile] = File(default=None),
 ):
     """统一 OCR/ASR/NLP 入口；mock 模式不会伪造图片或音频中的文字。"""
     if module not in {"sale", "lease", "work", "inspiration"}:
         raise HTTPException(status_code=422, detail="module 参数不正确")
+    if intent not in {"record", "plans"}:
+        raise HTTPException(status_code=422, detail="intent 参数不正确")
     if not text and file is None:
         raise HTTPException(status_code=422, detail="请至少提交文本或文件")
 
@@ -54,18 +59,22 @@ async def extract_ai_material(
         if extraction["text"]:
             text = f"{text or ''}\n{extraction['text']}".strip()
 
-    response = extract_response(text or "", module, provider_note)
+    response = extract_response(text or "", module, provider_note, intent)
     deepseek_enabled = (
         settings.ai_provider.strip().lower() in {"auto", "deepseek"}
         and deepseek_configured()
     )
     if deepseek_enabled:
         try:
-            response = await extract_with_deepseek(text or "", module, provider_note)
+            if intent == "plans":
+                response = await extract_with_deepseek(text or "", module, provider_note, intent)
+            else:
+                # 普通录入保持三参数调用，兼容既有接入和测试桩。
+                response = await extract_with_deepseek(text or "", module, provider_note)
         except Exception as exc:
             # 外部模型故障不应阻断归档，保留本地规则结果并让用户核对。
             logger.warning("DeepSeek extraction unavailable, using local rules: %s", exc)
-            response = extract_response(text or "", module, provider_note)
+            response = extract_response(text or "", module, provider_note, intent)
     return AIExtractResponse(**response)
 
 

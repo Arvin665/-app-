@@ -61,8 +61,22 @@
         <view class="summary-copy">
           <text class="summary-title">{{ summaryTitle }}</text>
           <text class="summary-note">{{ summaryNote }}</text>
+          <text v-if="providerLabel" class="summary-provider">{{ providerLabel }}</text>
         </view>
         <text v-if="moduleKey === 'sale'" class="summary-tag">自由记录</text>
+      </view>
+
+      <view v-if="recognizedItems.length" class="summary-detail">
+        <view class="summary-detail-head">
+          <text class="summary-detail-title">已整理关键信息</text>
+          <text class="summary-detail-count">{{ recognizedItems.length }} 项</text>
+        </view>
+        <view class="summary-grid">
+          <view v-for="item in recognizedItems" :key="item.key" class="summary-item">
+            <text class="summary-item-label">{{ item.label }}</text>
+            <text class="summary-item-value">{{ item.value }}</text>
+          </view>
+        </view>
       </view>
 
       <view class="section-block">
@@ -325,6 +339,8 @@ const config = computed(() => modules[moduleKey.value]);
 const form = ref({});
 const confidence = ref({});
 const missingFields = ref([]);
+const recognizedKeys = ref([]);
+const provider = ref("");
 const expanded = ref(false);
 const editingId = ref("");
 const today = localDate();
@@ -359,6 +375,18 @@ const allFields = computed(() => {
 const coreFields = computed(() => allFields.value.filter((field) => field.core));
 const extraFields = computed(() => allFields.value.filter((field) => !field.core));
 const filledCoreCount = computed(() => coreFields.value.filter((field) => hasValue(form.value[field.key])).length);
+const recognizedItems = computed(() => {
+  const fieldsByKey = Object.fromEntries(allFields.value.map((field) => [field.key, field]));
+  return recognizedKeys.value
+    .map((key) => fieldsByKey[key])
+    .filter((field) => field && hasValue(form.value[field.key]))
+    .map((field) => ({ key: field.key, label: field.label, value: fieldValue(field) }));
+});
+const providerLabel = computed(() => {
+  if (provider.value === "deepseek") return "DeepSeek 智能整理";
+  if (provider.value === "local-rule") return "本地智能整理";
+  return "";
+});
 const mainVoiceTitle = computed(() => {
   if (voice.active && voice.kind === "main" && voice.phase === "stopping") return "正在收尾，请稍等";
   if (voice.active && voice.kind === "main") return "正在听你说";
@@ -414,6 +442,8 @@ function resetState() {
   confidence.value = Object.fromEntries(Object.keys(form.value).map((key) => [key, 1]));
   missingFields.value = [];
   expanded.value = false;
+  recognizedKeys.value = [];
+  provider.value = "";
   editingId.value = "";
   inputText.value = "";
   pendingFiles.value = [];
@@ -430,8 +460,11 @@ function applyExtraction(result, rawText = "") {
   Object.entries(result.confidence || {}).forEach(([key, value]) => {
     confidence.value[key] = Number(value);
   });
+  recognizedKeys.value = incoming.map(([key]) => key).filter((key) => Object.prototype.hasOwnProperty.call(form.value, key));
+  provider.value = String(result.provider || "");
   missingFields.value = result.missing_fields || [];
   const storedText = String(result.corrected_text || rawText || "").trim();
+  if (storedText) inputText.value = storedText;
   const transcriptLabel = result.corrected_text ? "语音整理" : "语音原文";
   if (!incoming.length && rawText) {
     preserveTranscript(storedText, transcriptLabel);
@@ -458,6 +491,10 @@ function isCorrectionCommand(text) {
   return /改成|改为|调整为|更新为|不是|应该是/.test(text);
 }
 
+function extractionIntent() {
+  return moduleKey.value === "work" && form.value.record_type === "待办计划" ? "plans" : "record";
+}
+
 async function analyzeText(text) {
   const trimmed = String(text || "").trim();
   if (!trimmed || analyzing.value) return;
@@ -474,13 +511,22 @@ async function analyzeText(text) {
           command: trimmed,
         },
       });
-      if (!result.changed_fields?.length) result = await postForm("/ai/extract", { module: moduleKey.value, text: trimmed });
+      if (!result.changed_fields?.length) {
+        result = await postForm("/ai/extract", {
+          module: moduleKey.value,
+          text: trimmed,
+          intent: extractionIntent(),
+        });
+      }
       applyExtraction({ ...result, missing_fields: result.missing_fields || [] }, trimmed);
     } else {
-      result = await postForm("/ai/extract", { module: moduleKey.value, text: trimmed });
+      result = await postForm("/ai/extract", {
+        module: moduleKey.value,
+        text: trimmed,
+        intent: extractionIntent(),
+      });
       applyExtraction(result, trimmed);
     }
-    inputText.value = "";
     uni.vibrateShort?.({ type: "light" });
   } catch (error) {
     voiceStatus.value = error.message || "暂时没整理成功，原话还留在输入框";
@@ -1216,6 +1262,63 @@ onUnload(() => {
   color: var(--sale);
   font-size: 9px;
   font-weight: 700;
+}
+.summary-provider {
+  display: block;
+  margin-top: 5px;
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 650;
+}
+.summary-detail {
+  margin: 8px 16px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.summary-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.summary-detail-title {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+.summary-detail-count {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.summary-item {
+  min-width: 0;
+  padding: 8px 9px;
+  border-radius: 7px;
+  background: #f6f9f7;
+}
+.summary-item-label {
+  display: block;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+.summary-item-value {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .section-block {
   margin: 22px 16px 0;

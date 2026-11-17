@@ -6,6 +6,7 @@
     { "path": "pages/material/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/bind/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/entry/index", "style": { "navigationStyle": "custom", "enablePullDownRefresh": false } },
+    { "path": "pages/plan-review/index", "style": { "navigationStyle": "custom", "enablePullDownRefresh": false } },
     { "path": "pages/plans/index", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
     { "path": "pages/history/index", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
     { "path": "pages/detail/index", "style": { "navigationStyle": "custom" } },
