@@ -18,13 +18,13 @@ concurrency:
 jobs:
   build-simulator-app:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -45,25 +45,45 @@ jobs:
         working-directory: mobile-app
         run: npx cap sync ios
 
+      - name: Inspect Xcode project
+        working-directory: mobile-app
+        run: |
+          set -o pipefail
+          xcodebuild -version 2>&1 | tee ios-project-info.log
+          xcodebuild -list -project ios/App/App.xcodeproj 2>&1 | tee -a ios-project-info.log
+
       - name: Build unsigned simulator app
         working-directory: mobile-app
         run: |
+          set -o pipefail
           xcodebuild \
             -project ios/App/App.xcodeproj \
-            -target App \
+            -scheme App \
             -configuration Debug \
-            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build/ios-simulator \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            build
+            build 2>&1 | tee ios-build.log
 
       - name: Package simulator app
         working-directory: mobile-app
         run: |
+          test -d build/ios-simulator/Build/Products/Debug-iphonesimulator/App.app
           ditto -c -k --sequesterRsrc --keepParent \
             build/ios-simulator/Build/Products/Debug-iphonesimulator/App.app \
             build/asset-library-ios-simulator.zip
+
+      - name: Upload iOS build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asset-library-ios-build-log
+          path: |
+            mobile-app/ios-project-info.log
+            mobile-app/ios-build.log
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload simulator app
         uses: actions/upload-artifact@v4
