@@ -163,10 +163,12 @@ npm.cmd run build:app
 当前机器与 CI 状态：
 
 - Docker Compose、MySQL 8、Redis 7、Nginx、OCR/ASR、附件写入和重启后数据保留：已在 [GitHub Actions 联调任务](https://github.com/Arvin665/-app-/actions/runs/44042488671) 全部通过。当前本机没有 Docker CLI，无法在本地重复这项验证。
-- Android APK 和 iOS 模拟器包：最近一次 GitHub Actions 构建仍失败；构建配置修复已在本地提交，等待网络恢复推送后重跑。
-- Android/iOS 本地构建：当前机器没有 Java、Android SDK 或 Xcode。
-- 正式 APK/IPA 签名、真机安装、商店发布。
-- 配置真实 DeepSeek Key 后的线上纠错准确率和异常网络重试验收。
+- Android Debug APK：已在 [GitHub Actions Android 构建](https://github.com/Arvin665/-app-/actions/runs/44048218168) 通过；artifact `asset-library-android-debug` 内的 `app-debug.apk` 为 4,384,323 字节。这是调试包，不是正式签名发布包。
+- iOS 模拟器包：已在 [GitHub Actions iOS 构建](https://github.com/Arvin665/-app-/actions/runs/44047326183) 通过；产物是未签名模拟器构建，不是 IPA，也没有上架。
+- 当前机器没有 Docker CLI、Java、Android SDK 或 Xcode；本机无法重复 Android/iOS 原生构建。
+- 尚未完成真机麦克风、系统文件选择器、Android/iOS 安装和后台提醒验收。
+- 尚未配置真实 DeepSeek Key，因此真实线上纠错准确率、限额和异常网络重试仍需验收。
+- 尚未生成正式签名的 APK/IPA，也未完成应用商店发布。
 
 ## 生产上线前
 
