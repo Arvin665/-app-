@@ -1,0 +1,74 @@
+name: Mobile iOS Simulator Build
+
+on:
+  push:
+    paths:
+      - "mobile-app/**"
+      - ".github/workflows/mobile-ios.yml"
+  pull_request:
+    paths:
+      - "mobile-app/**"
+      - ".github/workflows/mobile-ios.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-simulator-app:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile-app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: mobile-app
+        run: npm ci
+
+      - name: Build H5 assets
+        working-directory: mobile-app
+        env:
+          VITE_API_BASE_URL: ${{ vars.ASSET_LIBRARY_API_BASE_URL || 'http://127.0.0.1:8000/api/v1' }}
+          VITE_BOOTSTRAP_INVITE_HINT: "246810"
+        run: npm run build:h5
+
+      - name: Sync Capacitor iOS project
+        working-directory: mobile-app
+        run: npx cap sync ios
+
+      - name: Build unsigned simulator app
+        working-directory: mobile-app
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -target App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -derivedDataPath build/ios-simulator \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: Package simulator app
+        working-directory: mobile-app
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/ios-simulator/Build/Products/Debug-iphonesimulator/App.app \
+            build/asset-library-ios-simulator.zip
+
+      - name: Upload simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: asset-library-ios-simulator
+          path: mobile-app/build/asset-library-ios-simulator.zip
+          if-no-files-found: error
+          retention-days: 14

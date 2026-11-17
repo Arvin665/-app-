@@ -1,4 +1,4 @@
-import { API_BASE_URL, request, upload } from "./api";
+import { API_BASE_URL, request, upload, uploadBlob } from "./api";
 import { getDeviceId } from "./device";
 
 export const materialTypeLabels = {
@@ -68,7 +68,57 @@ export function chooseImages({ count = 9, sourceType = ["album"] } = {}) {
   });
 }
 
+function canUseBrowserFilePicker() {
+  return typeof document !== "undefined" && typeof File !== "undefined";
+}
+
+function chooseBrowserFiles({ count = 9 } = {}) {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    let settled = false;
+    const cleanup = () => {
+      window.removeEventListener("focus", handleWindowFocus);
+      input.remove();
+    };
+    const finish = (files) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(files);
+    };
+    const handleWindowFocus = () => {
+      setTimeout(() => {
+        if (!input.files?.length) finish([]);
+      }, 700);
+    };
+    input.type = "file";
+    input.multiple = count > 1;
+    input.style.position = "fixed";
+    input.style.left = "-9999px";
+    input.style.width = "1px";
+    input.style.height = "1px";
+    input.addEventListener("change", () => {
+      const files = Array.from(input.files || []).slice(0, count).map((file, index) => ({
+        path: URL.createObjectURL(file),
+        name: file.name || `资料${index + 1}`,
+        size: file.size,
+        type: file.type,
+        file,
+        raw: file,
+      }));
+      finish(files);
+    });
+    input.addEventListener("cancel", () => finish([]));
+    document.body.appendChild(input);
+    window.addEventListener("focus", handleWindowFocus, { once: true });
+    input.click();
+  });
+}
+
 export function chooseFiles({ count = 9 } = {}) {
+  if (typeof uni.chooseFile !== "function" && canUseBrowserFilePicker()) {
+    return chooseBrowserFiles({ count });
+  }
   if (typeof uni.chooseFile !== "function") {
     return rejectUnsupported();
   }
@@ -108,6 +158,21 @@ export function materialUploadForm({ module, recordId, title } = {}) {
 export async function uploadMaterial(file, { module, recordId, title } = {}) {
   const normalized = normalizeChosenFile(file);
   if (!normalized) throw new Error("没有可上传的文件");
+  const blob = normalized.file instanceof Blob
+    ? normalized.file
+    : normalized.raw?.file instanceof Blob
+      ? normalized.raw.file
+      : normalized.raw instanceof Blob
+        ? normalized.raw
+        : null;
+  if (blob) {
+    return uploadBlob(
+      "/materials/upload",
+      blob,
+      materialUploadForm({ module, recordId, title }),
+      normalized.name,
+    );
+  }
   return upload("/materials/upload", normalized.path, materialUploadForm({ module, recordId, title }));
 }
 

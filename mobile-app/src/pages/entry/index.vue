@@ -431,21 +431,23 @@ function applyExtraction(result, rawText = "") {
     confidence.value[key] = Number(value);
   });
   missingFields.value = result.missing_fields || [];
+  const storedText = String(result.corrected_text || rawText || "").trim();
+  const transcriptLabel = result.corrected_text ? "语音整理" : "语音原文";
   if (!incoming.length && rawText) {
-    preserveTranscript(rawText);
+    preserveTranscript(storedText, transcriptLabel);
     voiceStatus.value = "已经先把原话存进备注，之后可以继续补充字段";
   } else {
     voiceStatus.value = result.note || `整理出 ${incoming.length} 项信息，请看一眼再保存`;
-    if (rawText && ["sale", "lease"].includes(moduleKey.value)) preserveTranscript(rawText);
+    if (storedText) preserveTranscript(storedText, transcriptLabel);
   }
 }
 
-function preserveTranscript(text) {
+function preserveTranscript(text, label = "语音原文") {
   const clean = String(text || "").trim();
   if (!clean) return;
   if (["sale", "lease"].includes(moduleKey.value)) {
     if (!String(form.value.remark || "").includes(clean)) {
-      form.value.remark = [form.value.remark, `语音原文：${clean}`].filter(Boolean).join("\n\n");
+      form.value.remark = [form.value.remark, `${label}：${clean}`].filter(Boolean).join("\n\n");
     }
     return;
   }
@@ -506,7 +508,7 @@ function startVoice(kind, field = null) {
   if (!dictationAvailable()) {
     uni.showModal({
       title: "当前环境没有语音识别",
-      content: "H5 建议使用 Edge/Chrome，App 内使用原生语音模块。你仍然可以先用文字输入。",
+      content: "请检查麦克风权限和资料库服务连接。你仍然可以先用文字输入。",
       showCancel: false,
     });
     return;
@@ -519,7 +521,7 @@ function startVoice(kind, field = null) {
   if (kind === "main") voiceStatus.value = "正在听，再按一下结束并整理";
   else voiceStatus.value = `正在听：${field.label}，再按一下结束`;
   voiceSession = startDictation({
-    continuous: kind === "main",
+    continuous: true,
     onStateChange: (state) => {
       if (voice.kind !== kind) return;
       voice.phase = state;

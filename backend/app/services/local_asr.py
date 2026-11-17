@@ -5,7 +5,9 @@ import subprocess
 import tempfile
 import threading
 import wave
+from array import array
 from functools import lru_cache
+from io import BytesIO
 from pathlib import Path
 
 from app.core.config import settings
@@ -17,6 +19,8 @@ class LocalAsrUnavailable(RuntimeError):
 
 _vosk_model = None
 _vosk_lock = threading.Lock()
+_sense_voice_recognizer = None
+_sense_voice_lock = threading.Lock()
 
 
 def powershell_path() -> Path | None:
@@ -38,6 +42,14 @@ def default_vosk_model_path() -> Path:
     return Path(__file__).resolve().parents[2] / "models" / "vosk-model-small-cn-0.22"
 
 
+def default_sense_voice_model_path() -> Path:
+    return (
+        Path(__file__).resolve().parents[2]
+        / "models"
+        / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
+    )
+
+
 def vosk_model_path() -> Path | None:
     candidate = (
         Path(settings.vosk_model_path).expanduser()
@@ -49,11 +61,32 @@ def vosk_model_path() -> Path | None:
     return None
 
 
+def sense_voice_model_path() -> Path | None:
+    candidate = (
+        Path(settings.sense_voice_model_path).expanduser()
+        if settings.sense_voice_model_path
+        else default_sense_voice_model_path()
+    )
+    if (candidate / "model.int8.onnx").is_file() and (candidate / "tokens.txt").is_file():
+        return candidate
+    return None
+
+
 def vosk_available() -> bool:
     if vosk_model_path() is None:
         return False
     try:
         import vosk  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def sense_voice_available() -> bool:
+    if sense_voice_model_path() is None:
+        return False
+    try:
+        import sherpa_onnx  # noqa: F401
     except ImportError:
         return False
     return True
@@ -110,18 +143,23 @@ def windows_recognizer_check() -> dict[str, str] | None:
     }
 
 
-def selected_provider() -> str | None:
+def provider_candidates() -> list[str]:
     requested = (settings.asr_engine or "auto").strip().lower()
     providers = {
+        "sensevoice": sense_voice_available,
         "windows-speech": windows_speech_available,
         "vosk": vosk_available,
     }
+    if requested in {"sensevoice", "sherpa-onnx"}:
+        return ["sensevoice"] if providers["sensevoice"]() else []
     if requested in providers:
-        return requested if providers[requested]() else None
-    for provider in ("windows-speech", "vosk"):
-        if providers[provider]():
-            return provider
-    return None
+        return [requested] if providers[requested]() else []
+    return [provider for provider in ("sensevoice", "windows-speech", "vosk") if providers[provider]()]
+
+
+def selected_provider() -> str | None:
+    candidates = provider_candidates()
+    return candidates[0] if candidates else None
 
 
 def local_asr_status() -> dict:
@@ -133,6 +171,7 @@ def local_asr_status() -> dict:
         "language": "zh-CN",
         "requested_engine": settings.asr_engine,
         "providers": {
+            "sensevoice": sense_voice_available(),
             "windows-speech": windows_speech_available(),
             "vosk": vosk_available(),
         },
@@ -216,7 +255,6 @@ def _transcribe_vosk_wav(content: bytes) -> dict:
     except ImportError as exc:
         raise LocalAsrUnavailable("当前后台没有安装 Vosk 语音识别引擎") from exc
     model = _load_vosk_model()
-    from io import BytesIO
 
     with wave.open(BytesIO(content), "rb") as audio:
         if audio.getnchannels() != 1 or audio.getsampwidth() != 2:
@@ -243,12 +281,103 @@ def _transcribe_vosk_wav(content: bytes) -> dict:
     }
 
 
+def _load_sense_voice_recognizer():
+    global _sense_voice_recognizer
+    if _sense_voice_recognizer is not None:
+        return _sense_voice_recognizer
+    model_path = sense_voice_model_path()
+    if model_path is None:
+        raise LocalAsrUnavailable("SenseVoiceSmall 模型目录未配置或不存在")
+    try:
+        import sherpa_onnx
+    except ImportError as exc:
+        raise LocalAsrUnavailable("当前后台没有安装 Sherpa-ONNX 语音识别运行时") from exc
+    with _sense_voice_lock:
+        if _sense_voice_recognizer is None:
+            _sense_voice_recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
+                model=str(model_path / "model.int8.onnx"),
+                tokens=str(model_path / "tokens.txt"),
+                num_threads=2,
+                use_itn=True,
+                language="zh",
+                provider="cpu",
+            )
+    return _sense_voice_recognizer
+
+
+def _resample_pcm16(samples: array, source_rate: int, target_rate: int = 16000) -> array:
+    if source_rate == target_rate or not samples:
+        return samples
+    target_length = max(1, round(len(samples) * target_rate / source_rate))
+    result = array("h")
+    ratio = source_rate / target_rate
+    for index in range(target_length):
+        position = index * ratio
+        left = min(int(position), len(samples) - 1)
+        right = min(left + 1, len(samples) - 1)
+        fraction = position - left
+        value = samples[left] * (1 - fraction) + samples[right] * fraction
+        result.append(max(-32768, min(32767, int(value))))
+    return result
+
+
+def _transcribe_sense_voice_wav(content: bytes) -> dict:
+    if not content.startswith(b"RIFF"):
+        raise ValueError("仅支持 WAV 录音")
+    with wave.open(BytesIO(content), "rb") as audio:
+        if audio.getnchannels() != 1 or audio.getsampwidth() != 2:
+            raise ValueError("SenseVoiceSmall 仅接受 16 位单声道 WAV")
+        sample_rate = audio.getframerate()
+        samples = array("h")
+        samples.frombytes(audio.readframes(audio.getnframes()))
+    samples = _resample_pcm16(samples, sample_rate)
+    if not samples:
+        return {"text": "", "provider": "sensevoice", "language": "zh-CN"}
+    recognizer = _load_sense_voice_recognizer()
+    stream = recognizer.create_stream()
+    stream.accept_waveform(16000, [sample / 32768.0 for sample in samples])
+    recognizer.decode_stream(stream)
+    result = stream.result
+    text = str(getattr(result, "text", "") or "").strip()
+    return {
+        "text": text,
+        "provider": "sensevoice",
+        "language": "zh-CN",
+    }
+
+
 def transcribe_wav(content: bytes) -> dict:
     if not content.startswith(b"RIFF"):
         raise ValueError("仅支持 WAV 录音")
-    provider = selected_provider()
-    if provider == "windows-speech":
-        return _transcribe_windows_wav(content)
-    if provider == "vosk":
-        return _transcribe_vosk_wav(content)
+    providers = provider_candidates()
+    if not providers:
+        raise LocalAsrUnavailable("当前后台没有配置中文语音识别引擎")
+
+    last_empty: dict | None = None
+    failures: list[Exception] = []
+    for provider in providers:
+        try:
+            if provider == "sensevoice":
+                result = _transcribe_sense_voice_wav(content)
+            elif provider == "windows-speech":
+                result = _transcribe_windows_wav(content)
+            else:
+                result = _transcribe_vosk_wav(content)
+            if str(result.get("text") or "").strip():
+                return result
+            last_empty = result
+        except (ValueError, TimeoutError):
+            raise
+        except Exception as exc:
+            failures.append(exc)
+
+    if last_empty is not None:
+        if failures:
+            last_empty["diagnostic"] = "；".join(str(error) for error in failures)[-600:]
+        return last_empty
+    if len(failures) == 1:
+        raise RuntimeError(str(failures[0])) from failures[0]
+    if failures:
+        detail = "；".join(str(error) for error in failures)[-600:]
+        raise RuntimeError(f"所有本地语音引擎均识别失败：{detail}") from failures[-1]
     raise LocalAsrUnavailable("当前后台没有配置中文语音识别引擎")

@@ -16,16 +16,23 @@ class Settings(BaseSettings):
     public_base_url: str = "http://localhost:8000"
     cors_origins: str = (
         "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,"
-        "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,http://127.0.0.1:5176"
+        "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,http://127.0.0.1:5176,"
+        "https://localhost,capacitor://localhost"
     )
     upload_dir: str = str(Path(__file__).resolve().parents[2] / "uploads")
-    ai_provider: str = "local"
+    # auto 会在配置 API Key 时优先调用 DeepSeek，否则保留本地规则。
+    ai_provider: str = "auto"
     ocr_enabled: bool = True
     ocr_max_pdf_pages: int = 30
     ocr_min_text_chars: int = 20
     asr_timeout_seconds: int = 180
     asr_engine: str = "auto"
     vosk_model_path: str = ""
+    sense_voice_model_path: str = ""
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com/v1"
+    deepseek_model: str = "deepseek-chat"
+    deepseek_timeout_seconds: int = 45
     ffmpeg_binary: str = ""
     auto_create_tables: bool = True
     access_cache_seconds: int = 300

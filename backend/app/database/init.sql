@@ -1,11 +1,9 @@
 -- =============================================
 -- 商办信息资产库 数据库初始化
 -- MySQL 8.0 / utf8mb4 / utf8mb4_unicode_ci
--- 可直接执行；重复执行只重建当前库中的这 9 张表。
+-- 由 MySQL 官方入口脚本在 MYSQL_DATABASE 选中的库内执行。
 -- =============================================
-CREATE DATABASE IF NOT EXISTS `mall_office_asset`
-  DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE `mall_office_asset`;
+SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 0;
 DROP TABLE IF EXISTS `biz_personal_inspiration`;

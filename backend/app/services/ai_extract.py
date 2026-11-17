@@ -496,7 +496,7 @@ def extract_response(text: str, module: str, provider_note: str = "") -> dict[st
         "fields": fields,
         "confidence": result["confidence"],
         "missing_fields": missing,
-        "provider": settings.ai_provider,
+        "provider": "local-rule",
         "note": note,
     }
 

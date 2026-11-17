@@ -7,9 +7,17 @@
     "dev:h5": "uni -p h5 --host 127.0.0.1 --port 5173",
     "build:h5": "uni build -p h5",
     "dev:app": "uni -p app",
-    "build:app": "uni build -p app"
+    "build:app": "uni build -p app",
+    "native:sync": "npm run build:h5 && cap sync",
+    "native:sync:android:debug": "npm run build:h5 && node scripts/cap-sync-android-debug.mjs",
+    "native:open:android": "cap open android",
+    "native:open:ios": "cap open ios",
+    "native:build:android:debug": "npm run native:sync:android:debug && cd android && gradlew.bat assembleDebug"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/ios": "^8.6.2",
     "@dcloudio/uni-app": "3.0.0-alpha-5030620261112001",
     "@dcloudio/uni-app-plus": "3.0.0-alpha-5030620261112001",
     "@dcloudio/uni-components": "3.0.0-alpha-5030620261112001",
@@ -18,6 +26,7 @@
     "vue": "3.5.45"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.2",
     "@dcloudio/types": "3.4.31",
     "@dcloudio/vite-plugin-uni": "3.0.0-alpha-5030620261112001",
     "vite": "5.2.8"

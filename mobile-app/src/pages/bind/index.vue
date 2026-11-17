@@ -35,7 +35,6 @@
           class="code-input"
           type="number"
           maxlength="6"
-          focus
           placeholder="请输入 6 位数字"
           placeholder-style="color: #87948f; font-size: 14px; font-weight: 500; letter-spacing: 0;"
           @input="filterCode"
@@ -44,6 +43,30 @@
         <view class="code-progress">
           <view v-for="index in 6" :key="index" class="progress-dot" :class="{ filled: inviteCode.length >= index }"></view>
         </view>
+      </view>
+
+      <view class="service-status pressable" @tap="serverExpanded = !serverExpanded">
+        <view class="service-icon"><Server :size="16" /></view>
+        <view class="service-copy">
+          <text class="service-title">资料库服务</text>
+          <text class="service-state" :class="{ ready: serviceProbe?.ok, failed: serviceProbe && !serviceProbe.ok }">
+            {{ probing ? "正在检测连接..." : serviceProbe?.ok ? "已连接" : "未连接" }}
+          </text>
+        </view>
+        <text class="service-action">{{ serverExpanded ? "收起" : "设置" }}</text>
+      </view>
+      <view v-if="serverExpanded" class="server-editor">
+        <input
+          v-model="serverAddress"
+          class="server-input"
+          placeholder="例如 https://asset.example.com"
+          placeholder-style="color: #80958d;"
+        />
+        <view class="server-actions">
+          <button class="server-button primary pressable" :disabled="probing" @tap="saveServer">保存并检测</button>
+          <button class="server-button pressable" :disabled="probing" @tap="probe">重新检测</button>
+        </view>
+        <text v-if="serviceProbe?.message" class="server-hint">{{ serviceProbe.message }}</text>
       </view>
 
       <view v-if="bootstrapInviteHint" class="bootstrap-hint">
@@ -58,6 +81,10 @@
           <Check :size="14" />
           <text>一键填入</text>
         </button>
+      </view>
+
+      <view v-if="errorMessage" class="error-banner">
+        <text>{{ errorMessage }}</text>
       </view>
 
       <button class="bind-button pressable" :disabled="loading || inviteCode.length !== 6" @tap="submit">
@@ -77,18 +104,42 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
-import { ArrowRight, Check, KeyRound, LoaderCircle, ShieldCheck } from "@lucide/vue";
+import { onMounted, ref } from "vue";
+import { ArrowRight, Check, KeyRound, LoaderCircle, Server, ShieldCheck } from "@lucide/vue";
 import ModuleMark from "../../components/ModuleMark.vue";
 import { moduleList } from "../../data/modules";
 import { bindDevice, getSession } from "../../services/session";
+import { API_BASE_URL, probeService, setApiBaseUrl } from "../../services/api";
 
 const inviteCode = ref("");
+const errorMessage = ref("");
+const probing = ref(false);
+const serviceProbe = ref(null);
+const serverExpanded = ref(false);
+const serverAddress = ref(API_BASE_URL);
 const loading = ref(false);
 const previewModules = moduleList;
-const bootstrapInviteHint = import.meta.env.DEV
-  ? String(import.meta.env.VITE_BOOTSTRAP_INVITE_HINT || "246810").replace(/\D/g, "").slice(0, 6)
-  : "";
+const configuredInviteHint = String(import.meta.env.VITE_BOOTSTRAP_INVITE_HINT || "")
+  .replace(/\D/g, "")
+  .slice(0, 6);
+const bootstrapInviteHint = configuredInviteHint || (import.meta.env.DEV ? "246810" : "");
+
+async function probe() {
+  if (probing.value) return serviceProbe.value;
+  probing.value = true;
+  serviceProbe.value = await probeService();
+  probing.value = false;
+  serverAddress.value = serviceProbe.value.baseUrl;
+  return serviceProbe.value;
+}
+
+async function saveServer() {
+  errorMessage.value = "";
+  serverAddress.value = setApiBaseUrl(serverAddress.value);
+  const result = await probe();
+  if (!result.ok) serverExpanded.value = true;
+  else serverExpanded.value = false;
+}
 
 function filterCode(event) {
   inviteCode.value = String(event.detail.value || "").replace(/\D/g, "").slice(0, 6);
@@ -99,17 +150,22 @@ function fillBootstrapInvite() {
 }
 
 async function submit() {
+  errorMessage.value = "";
   if (inviteCode.value.length !== 6 || loading.value) return;
   loading.value = true;
   try {
     await bindDevice(inviteCode.value);
     uni.reLaunch({ url: "/pages/home/index" });
   } catch (error) {
-    uni.showToast({ title: error.message || "邀请码验证失败", icon: "none", duration: 2600 });
+    errorMessage.value = error.message || "邀请码验证失败";
+    if (error.status === 0) serverExpanded.value = true;
+    uni.showToast({ title: errorMessage.value, icon: "none", duration: 3200 });
   } finally {
     loading.value = false;
   }
 }
+
+onMounted(probe);
 
 const session = getSession();
 if (session?.device_id) {
@@ -282,6 +338,103 @@ if (session?.device_id) {
 .progress-dot.filled {
   background: #0b7565;
 }
+.service-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.service-icon {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: rgba(213, 244, 235, 0.09);
+  color: #c5eee4;
+}
+.service-copy {
+  flex: 1;
+  min-width: 0;
+}
+.service-title {
+  display: block;
+  color: #eef8f5;
+  font-size: 10px;
+  font-weight: 650;
+}
+.service-state {
+  display: block;
+  margin-top: 2px;
+  color: #9fb4ad;
+  font-size: 8px;
+}
+.service-state.ready {
+  color: #91e2cd;
+}
+.service-state.failed {
+  color: #f1b28d;
+}
+.service-action {
+  flex: none;
+  color: #b9d5cd;
+  font-size: 9px;
+}
+.server-editor {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid rgba(169, 238, 224, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+.server-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.14);
+  color: #f2fbf8;
+  font-size: 10px;
+}
+.server-actions {
+  display: flex;
+  gap: 7px;
+  margin-top: 8px;
+}
+.server-button {
+  height: 32px;
+  flex: 1;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #d9e9e4;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 30px;
+}
+.server-button.primary {
+  border-color: transparent;
+  background: #d5f4eb;
+  color: #12382f;
+}
+.server-button[disabled] {
+  opacity: 0.48;
+}
+.server-hint {
+  display: block;
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+  color: #9fb4ad;
+  font-size: 8px;
+  line-height: 13px;
+}
 .bootstrap-hint {
   display: flex;
   align-items: center;
@@ -333,6 +486,16 @@ if (session?.device_id) {
   font-size: 10px;
   font-weight: 650;
   line-height: 30px;
+}
+.error-banner {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid rgba(244, 177, 133, 0.28);
+  border-radius: 7px;
+  background: rgba(193, 92, 38, 0.16);
+  color: #ffd2b6;
+  font-size: 9px;
+  line-height: 15px;
 }
 .bind-button {
   width: 100%;

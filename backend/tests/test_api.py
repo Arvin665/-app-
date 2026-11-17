@@ -506,3 +506,88 @@ def test_transcribe_endpoint_returns_real_engine_result(monkeypatch):
             files={"file": ("dictation.wav", b"not-a-wave-file" * 4, "audio/wav")},
         )
         assert invalid.status_code == 422
+
+
+def test_transcribe_media_accepts_native_audio_formats(monkeypatch):
+    from app.api import ai as ai_api
+
+    captured = {}
+
+    def fake_transcribe_media(content: bytes, suffix: str):
+        captured["content"] = content
+        captured["suffix"] = suffix
+        return {
+            "text": "原生录音已经识别",
+            "provider": "test-ffmpeg-asr",
+            "language": "zh-CN",
+        }
+
+    monkeypatch.setattr(ai_api, "transcribe_media", fake_transcribe_media)
+    with TestClient(app) as client:
+        bind(client, ADMIN_ID, "246810")
+        response = client.post(
+            "/api/v1/ai/transcribe-media",
+            headers=headers(ADMIN_ID),
+            files={"file": ("native-recording.m4a", b"native-audio-content", "audio/mp4")},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["text"] == "原生录音已经识别"
+        assert captured == {"content": b"native-audio-content", "suffix": ".m4a"}
+
+
+def test_ai_extract_uses_deepseek_corrected_text(monkeypatch):
+    from app.api import ai as ai_api
+
+    captured = {}
+
+    monkeypatch.setattr(ai_api, "deepseek_configured", lambda: True)
+
+    async def fake_extract(text, module, provider_note=""):
+        captured.update({"text": text, "module": module, "provider_note": provider_note})
+        return {
+            "module": module,
+            "fields": {"project_name": "陆家嘴中心", "deal_total_price": "32000.00"},
+            "confidence": {"project_name": 0.98, "deal_total_price": 0.96},
+            "missing_fields": [],
+            "provider": "deepseek",
+            "note": "已纠错并分类",
+            "corrected_text": "陆家嘴中心项目总价三点二亿元。",
+        }
+
+    monkeypatch.setattr(ai_api, "extract_with_deepseek", fake_extract)
+    with TestClient(app) as client:
+        bind(client, ADMIN_ID, "246810")
+        response = client.post(
+            "/api/v1/ai/extract",
+            headers=headers(ADMIN_ID),
+            data={"module": "sale", "text": "陆家嘴中心项目总价3.2亿"},
+        )
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result["provider"] == "deepseek"
+        assert result["corrected_text"] == "陆家嘴中心项目总价三点二亿元。"
+        assert captured["module"] == "sale"
+        assert captured["text"] == "陆家嘴中心项目总价3.2亿"
+
+
+def test_ai_extract_keeps_local_result_when_deepseek_fails(monkeypatch):
+    from app.api import ai as ai_api
+
+    monkeypatch.setattr(ai_api, "deepseek_configured", lambda: True)
+
+    async def failed_extract(text, module, provider_note=""):
+        raise RuntimeError("simulated DeepSeek timeout")
+
+    monkeypatch.setattr(ai_api, "extract_with_deepseek", failed_extract)
+    with TestClient(app) as client:
+        bind(client, ADMIN_ID, "246810")
+        response = client.post(
+            "/api/v1/ai/extract",
+            headers=headers(ADMIN_ID),
+            data={"module": "sale", "text": "陆家嘴项目总价3.2亿"},
+        )
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result["provider"] == "local-rule"
+        assert result["fields"]["deal_total_price"] == "32000.00"
+        assert result["corrected_text"] is None

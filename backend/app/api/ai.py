@@ -6,6 +6,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import CurrentDevice
+from app.core.config import settings
 from app.schemas.ai import (
     AIExtractResponse,
     CommandRequest,
@@ -15,8 +16,13 @@ from app.schemas.ai import (
     TranscriptionResponse,
 )
 from app.services.ai_extract import apply_command, extract_response, parse_field_value
+from app.services.llm_extract import deepseek_configured, extract_with_deepseek
 from app.services.local_asr import LocalAsrUnavailable, local_asr_status, transcribe_wav
-from app.services.media_extract import media_status
+from app.services.media_extract import (
+    MediaExtractionUnavailable,
+    media_status,
+    transcribe_media,
+)
 from app.services.material_extract import extract_material
 from app.services.ocr_extract import ocr_status
 
@@ -49,6 +55,17 @@ async def extract_ai_material(
             text = f"{text or ''}\n{extraction['text']}".strip()
 
     response = extract_response(text or "", module, provider_note)
+    deepseek_enabled = (
+        settings.ai_provider.strip().lower() in {"auto", "deepseek"}
+        and deepseek_configured()
+    )
+    if deepseek_enabled:
+        try:
+            response = await extract_with_deepseek(text or "", module, provider_note)
+        except Exception as exc:
+            # 外部模型故障不应阻断归档，保留本地规则结果并让用户核对。
+            logger.warning("DeepSeek extraction unavailable, using local rules: %s", exc)
+            response = extract_response(text or "", module, provider_note)
     return AIExtractResponse(**response)
 
 
@@ -78,6 +95,10 @@ def ai_capabilities(device: CurrentDevice):
     asr = local_asr_status()
     ocr = ocr_status()
     media = media_status()
+    deepseek_enabled = (
+        settings.ai_provider.strip().lower() in {"auto", "deepseek"}
+        and deepseek_configured()
+    )
     unavailable = []
     if not ocr["available"]:
         unavailable.append("图片/扫描 PDF OCR")
@@ -91,11 +112,15 @@ def ai_capabilities(device: CurrentDevice):
         else f"当前缺少：{'、'.join(unavailable)}。原件仍会安全保存。"
     )
     return {
-        "provider": "local",
+        "provider": "local+deepseek" if deepseek_enabled else "local",
         "ocr": ocr,
         "asr": asr,
         "media": media,
-        "nlp": {"available": True, "mode": "local-rule"},
+        "nlp": {
+            "available": True,
+            "mode": "deepseek" if deepseek_enabled else "local-rule",
+            "deepseek_configured": deepseek_configured(),
+        },
         "notice": notice,
     }
 
@@ -124,4 +149,27 @@ async def transcribe_audio(device: CurrentDevice, file: UploadFile = File(...)):
     except Exception as exc:
         logger.exception("Local speech recognition failed")
         raise HTTPException(status_code=500, detail="语音识别失败，请重新录制") from exc
+    return TranscriptionResponse(**result)
+
+
+@router.post("/transcribe-media", response_model=TranscriptionResponse)
+async def transcribe_any_media(device: CurrentDevice, file: UploadFile = File(...)):
+    """接收原生录音或其他音频格式，经 ffmpeg 归一化后再离线识别。"""
+    content = await file.read(50 * 1024 * 1024 + 1)
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="录音文件不能超过 50MB")
+    if len(content) < 16:
+        raise HTTPException(status_code=422, detail="录音内容为空")
+    suffix = Path(file.filename or "").suffix or ".bin"
+    try:
+        result = await run_in_threadpool(transcribe_media, content, suffix)
+    except (LocalAsrUnavailable, MediaExtractionUnavailable) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Media transcription failed")
+        raise HTTPException(status_code=500, detail="音频转写失败，请重新录制") from exc
     return TranscriptionResponse(**result)

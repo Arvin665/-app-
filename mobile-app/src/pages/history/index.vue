@@ -336,7 +336,7 @@ function toggleVoiceSearch() {
   if (!dictationAvailable()) {
     uni.showModal({
       title: "当前环境没有语音识别",
-      content: "可以使用 Edge/Chrome 或 App 原生语音模块，也可以直接输入关键词。",
+      content: "请检查麦克风权限和资料库服务连接，也可以直接输入关键词。",
       showCancel: false,
     });
     return;

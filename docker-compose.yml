@@ -44,11 +44,16 @@ services:
       BOOTSTRAP_INVITE_CODE: ${BOOTSTRAP_INVITE_CODE:-246810}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
-      AI_PROVIDER: ${AI_PROVIDER:-local}
+      AI_PROVIDER: ${AI_PROVIDER:-auto}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      DEEPSEEK_TIMEOUT_SECONDS: ${DEEPSEEK_TIMEOUT_SECONDS:-45}
       OCR_ENABLED: ${OCR_ENABLED:-true}
       OCR_MAX_PDF_PAGES: ${OCR_MAX_PDF_PAGES:-30}
       OCR_MIN_TEXT_CHARS: ${OCR_MIN_TEXT_CHARS:-20}
-      ASR_ENGINE: ${ASR_ENGINE:-vosk}
+      ASR_ENGINE: ${ASR_ENGINE:-sensevoice}
+      SENSE_VOICE_MODEL_PATH: /app/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17
       VOSK_MODEL_PATH: /app/models/vosk-model-small-cn-0.22
       ASR_TIMEOUT_SECONDS: ${ASR_TIMEOUT_SECONDS:-180}
       FFMPEG_BINARY: /usr/bin/ffmpeg

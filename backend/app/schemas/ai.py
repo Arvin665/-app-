@@ -10,6 +10,7 @@ class AIExtractResponse(BaseModel):
     missing_fields: list[str]
     provider: str
     note: str
+    corrected_text: Optional[str] = None
 
 
 class CommandRequest(BaseModel):

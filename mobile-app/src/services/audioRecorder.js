@@ -67,10 +67,21 @@ export async function startWavRecorder() {
   const silentOutput = context.createGain();
   const chunks = [];
   let closed = false;
+  let sampleCount = 0;
+  let sumSquares = 0;
+  let peak = 0;
 
   silentOutput.gain.value = 0;
   processor.onaudioprocess = (event) => {
-    if (!closed) chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+    if (closed) return;
+    const chunk = new Float32Array(event.inputBuffer.getChannelData(0));
+    chunks.push(chunk);
+    for (let index = 0; index < chunk.length; index += 1) {
+      const sample = chunk[index];
+      sumSquares += sample * sample;
+      peak = Math.max(peak, Math.abs(sample));
+    }
+    sampleCount += chunk.length;
   };
   source.connect(processor);
   processor.connect(silentOutput);
@@ -90,8 +101,17 @@ export async function startWavRecorder() {
 
   return {
     stop() {
+      const stats = {
+        durationMs: Math.round((sampleCount / context.sampleRate) * 1000),
+        peak,
+        rms: sampleCount ? Math.sqrt(sumSquares / sampleCount) : 0,
+        sampleRate: context.sampleRate,
+      };
       close();
-      return encodeWav(chunks, context.sampleRate);
+      return {
+        blob: encodeWav(chunks, stats.sampleRate),
+        ...stats,
+      };
     },
     abort() {
       close();

@@ -731,7 +731,7 @@ function toggleVoice(target) {
   if (!dictationAvailable()) {
     uni.showModal({
       title: "当前环境没有语音识别",
-      content: "H5 建议使用 Edge/Chrome，App 内需要原生语音模块。你仍然可以直接输入文字。",
+      content: "请检查麦克风权限和资料库服务连接。你仍然可以直接输入文字。",
       showCancel: false,
     });
     return;

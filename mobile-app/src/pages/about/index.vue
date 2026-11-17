@@ -75,7 +75,7 @@
         <view class="boundary-list">
           <view class="boundary-row"><view class="dot"></view><text>后端文字理解使用本地规则，不调用第三方大模型，结果需要人工核对。</text></view>
           <view class="boundary-row"><view class="dot"></view><text>图片和扫描 PDF 使用服务器本地 OCR，识别结果可搜索，也需要人工核对。</text></view>
-          <view class="boundary-row"><view class="dot"></view><text>H5 录音会转成 WAV 后交给后台离线识别；App 优先使用原生语音模块。</text></view>
+          <view class="boundary-row"><view class="dot"></view><text>H5 与 App 都会先把录音上传到后台离线识别，避免原生语音模块返回空内容。</text></view>
           <view class="boundary-row"><view class="dot"></view><text>音频和视频先在本机提取音轨，再转写为可搜索文字。</text></view>
           <view class="boundary-row"><view class="dot"></view><text>{{ capabilityNotice }}</text></view>
         </view>
