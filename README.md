@@ -160,10 +160,11 @@ npm.cmd run build:app
 - SenseVoiceSmall 真实中文样例：本机 `zh.wav` 成功转写为“开饭时间早上9点至下午5点。”，端点返回 `provider=sensevoice`。
 - 麦克风权限、系统文件选择器和手机真机语音必须在有界面的设备上人工验收；无头环境不能代替真实录音验收。
 
-尚未在当前机器完成：
+当前机器与 CI 状态：
 
-- Docker Compose、MySQL 8、Redis 7 的实际启动联调。当前机器没有 Docker CLI。
-- Android APK、iOS 模拟器包的本地构建。当前机器没有 Java、Android SDK 或 Xcode。
+- Docker Compose、MySQL 8、Redis 7、Nginx、OCR/ASR、附件写入和重启后数据保留：已在 [GitHub Actions 联调任务](https://github.com/Arvin665/-app-/actions/runs/44042488671) 全部通过。当前本机没有 Docker CLI，无法在本地重复这项验证。
+- Android APK 和 iOS 模拟器包：最近一次 GitHub Actions 构建仍失败；构建配置修复已在本地提交，等待网络恢复推送后重跑。
+- Android/iOS 本地构建：当前机器没有 Java、Android SDK 或 Xcode。
 - 正式 APK/IPA 签名、真机安装、商店发布。
 - 配置真实 DeepSeek Key 后的线上纠错准确率和异常网络重试验收。
 
