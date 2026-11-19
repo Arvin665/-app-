@@ -62,6 +62,24 @@
         <text class="result-filter">{{ activeFilterLabel }}</text>
       </view>
 
+      <StatusNotice
+        v-if="tab === 'records' && recordsError && records.length"
+        tone="warning"
+        title="部分记录正在显示本机缓存"
+        :message="recordsError"
+        action-text="重新连接"
+        @action="refresh"
+      />
+      <StatusNotice
+        v-if="tab === 'materials' && materialsError && materials.length"
+        tone="warning"
+        title="当前资料列表没有完全同步"
+        :message="materialsError"
+        action-text="重新加载"
+        @action="refresh"
+      />
+
+
       <template v-if="tab === 'records'">
         <view v-if="records.length" class="record-list">
           <view
@@ -96,14 +114,40 @@
         </view>
       </template>
 
-      <view v-if="!loading && !currentTotal" class="empty-history">
-        <view class="empty-mark"><NotebookTabs :size="25" /></view>
-        <text class="empty-title">没有找到对应内容</text>
-        <text class="empty-desc">{{ keyword ? "换一种说法，或清除筛选后再看。" : tab === "records" ? "这个模块还没有记录。" : "这个模块还没有资料。" }}</text>
-        <view class="empty-action pressable" @tap="clearFilters">清除筛选</view>
-      </view>
-
-      <view v-if="loading && !currentTotal" class="loading-state"><LoaderCircle :size="21" class="spin" /><text>正在读取</text></view>
+      <StatePanel
+        v-if="loading && !currentTotal"
+        state="loading"
+        :title="tab === 'records' ? '正在翻阅业务记录' : '正在整理资料原件'"
+        :description="tab === 'records' ? '正在读取已保存的咨询、项目和进展。' : '正在读取图片、文件和可检索正文。'"
+      />
+      <StatePanel
+        v-else-if="tab === 'records' && recordsError && !records.length"
+        state="error"
+        title="记录暂时没有加载出来"
+        :description="recordsError"
+        action-text="重新加载"
+        :secondary-text="hasActiveFilters ? '清除筛选' : ''"
+        @action="refresh"
+        @secondary="clearFilters"
+      />
+      <StatePanel
+        v-else-if="tab === 'materials' && materialsError && !materials.length"
+        state="error"
+        title="资料库暂时没有连上"
+        :description="materialsError"
+        action-text="重新加载"
+        :secondary-text="hasActiveFilters ? '清除筛选' : ''"
+        @action="refresh"
+        @secondary="clearFilters"
+      />
+      <StatePanel
+        v-else-if="!currentTotal"
+        state="empty"
+        :title="hasActiveFilters ? '没有找到对应内容' : tab === 'records' ? '这里还没有业务记录' : '这里还没有资料原件'"
+        :description="hasActiveFilters ? '换一种说法，或清除搜索和模块筛选后再看。' : tab === 'records' ? '先说出听到、看到或正在做的事，记录会在这里留档。' : '图片、PDF、表格和其他文件都可以先存进资料库。'"
+        :action-text="hasActiveFilters ? '清除筛选' : '刷新看看'"
+        @action="hasActiveFilters ? clearFilters() : refresh()"
+      />
       <view v-if="loadingMore" class="loading-more"><LoaderCircle :size="15" class="spin" /><text>继续加载</text></view>
       <view v-if="currentTotal && !hasMore && !loadingMore" class="all-loaded">已经翻到最早一条</view>
       <view class="scroll-space"></view>
@@ -127,6 +171,8 @@ import {
 import PageHeader from "../../components/PageHeader.vue";
 import ModuleMark from "../../components/ModuleMark.vue";
 import MaterialRow from "../../components/MaterialRow.vue";
+import StatePanel from "../../components/StatePanel.vue";
+import StatusNotice from "../../components/StatusNotice.vue";
 import { moduleList, recordDate, recordTitle } from "../../data/modules";
 import { request } from "../../services/api";
 import { cacheRecords, getCachedRecords } from "../../services/localDb";
@@ -147,6 +193,8 @@ const materialPage = ref(1);
 const loading = ref(false);
 const loadingMore = ref(false);
 const listening = ref(false);
+const recordsError = ref("");
+const materialsError = ref("");
 const voicePhase = ref("idle");
 const voiceInterim = ref("");
 const pageSize = 30;
@@ -159,6 +207,7 @@ const filters = computed(() => [
   ...moduleList.map((item) => ({ key: item.key, label: item.visual.short })),
 ]);
 const currentTotal = computed(() => (tab.value === "records" ? recordTotal.value : materialTotal.value));
+const hasActiveFilters = computed(() => Boolean(keyword.value.trim() || moduleFilter.value !== "all" || fileType.value));
 const activeFilterLabel = computed(() => {
   const module = moduleFilter.value === "all" ? "全部模块" : moduleNames[moduleFilter.value];
   return tab.value === "materials" && fileType.value ? `${module} · ${typeLabel(fileType.value)}` : module;
@@ -227,6 +276,8 @@ async function loadRecords(reset = false) {
     loading.value = true;
     recordPage.value = 1;
     records.value = [];
+    recordTotal.value = 0;
+    recordsError.value = "";
   } else {
     loadingMore.value = true;
   }
@@ -247,6 +298,7 @@ async function loadRecords(reset = false) {
           module: module.key,
           response: { items: filtered.slice(0, pageSize), total: filtered.length },
           cached: true,
+          errorMessage: error.message || "服务暂时无法连接",
         };
       }
     }),
@@ -264,6 +316,12 @@ async function loadRecords(reset = false) {
     }));
   });
   recordTotal.value = results.reduce((sum, result) => sum + (result.status === "fulfilled" ? Number(result.value.response.total || 0) : 0), 0);
+  const recordFailures = results
+    .map((result) => result.status === "fulfilled" ? result.value.errorMessage : result.reason?.message)
+    .filter(Boolean);
+  if (recordFailures.length) {
+    recordsError.value = recordFailures[0] || "部分记录暂时没有同步。";
+  }
   const merged = reset ? fresh : [...records.value, ...fresh];
   records.value = Array.from(new Map(merged.map((item) => [`${item.module}-${item.record_id}`, item])).values()).sort(
     (a, b) => (b.displayDate || "").localeCompare(a.displayDate || ""),
@@ -278,6 +336,8 @@ async function loadMaterials(reset = false) {
     loading.value = true;
     materialPage.value = 1;
     materials.value = [];
+    materialTotal.value = 0;
+    materialsError.value = "";
   } else {
     loadingMore.value = true;
   }
@@ -292,8 +352,10 @@ async function loadMaterials(reset = false) {
     const incoming = response.items || [];
     materials.value = reset ? incoming : [...materials.value, ...incoming];
     materialTotal.value = Number(response.total || 0);
+    materialsError.value = "";
   } catch (error) {
-    uni.showToast({ title: error.message || "资料加载失败", icon: "none" });
+    if (reset) materials.value = [];
+    materialsError.value = error.message || "资料加载失败，请检查网络和资料库服务。";
   } finally {
     loading.value = false;
     loadingMore.value = false;
@@ -690,5 +752,54 @@ onUnload(() => {
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Readability and narrow-screen pass. */
+.tab-switch,
+.record-list,
+.material-list {
+  border-radius: 8px;
+}
+.tab-item {
+  min-height: 40px;
+  font-size: 12px;
+}
+.tab-count {
+  font-size: 10px;
+}
+.listening-note,
+.filter-chip,
+.result-line,
+.loading-more,
+.all-loaded {
+  font-size: 11px;
+}
+.module-label,
+.record-date {
+  font-size: 10px;
+}
+.record-summary {
+  font-size: 12px;
+  line-height: 19px;
+}
+.record-title {
+  font-size: 14px;
+}
+.empty-history,
+.loading-state {
+  display: none;
+}
+@media (max-width: 360px) {
+  .history-top,
+  .history-scroll {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .filter-chip {
+    padding: 0 9px;
+  }
+  .record-card {
+    padding: 11px 10px;
+  }
 }
 </style>

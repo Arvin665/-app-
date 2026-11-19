@@ -145,13 +145,19 @@ async def extract_with_deepseek(text: str, module: str, provider_note: str = "")
         ],
         "temperature": 0.1,
         "stream": False,
+        "thinking": {"type": "disabled"},
         "response_format": {"type": "json_object"},
     }
-    async with httpx.AsyncClient(timeout=settings.deepseek_timeout_seconds) as client:
+    # 忽略桌面工具注入的失效 HTTP(S)_PROXY，DeepSeek 请求直连官方 API。
+    async with httpx.AsyncClient(
+        timeout=settings.deepseek_timeout_seconds,
+        trust_env=False,
+    ) as client:
         response = await client.post(endpoint, headers=headers, json=payload)
         if response.status_code == 400:
-            # 部分 OpenAI 兼容网关不支持 response_format，去掉后重试一次。
+            # 部分 OpenAI 兼容网关不支持 DeepSeek 扩展参数，去掉高级参数后重试一次。
             payload.pop("response_format", None)
+            payload.pop("thinking", None)
             response = await client.post(endpoint, headers=headers, json=payload)
     if response.status_code >= 400:
         detail = response.text.strip().replace("\n", " ")[:240]

@@ -33,6 +33,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ai", tags=["智能识别"])
 
 
+def _deepseek_failure_reason(exc: Exception) -> str:
+    detail = str(exc).strip().lower()
+    if "connect" in detail or "连接" in detail or "network" in detail:
+        return "网络连接失败"
+    if "timeout" in detail or "超时" in detail:
+        return "请求超时"
+    if "401" in detail or "403" in detail:
+        return "API Key 无效或无权限"
+    if "400" in detail:
+        return "模型或请求参数不兼容"
+    if "json" in detail:
+        return "模型返回格式异常"
+    return "模型服务暂时不可用"
+
+
 @router.post("/extract", response_model=AIExtractResponse)
 async def extract_ai_material(
     device: CurrentDevice,
@@ -71,10 +86,18 @@ async def extract_ai_material(
             else:
                 # 普通录入保持三参数调用，兼容既有接入和测试桩。
                 response = await extract_with_deepseek(text or "", module, provider_note)
+            logger.info(
+                "DeepSeek extraction succeeded: module=%s intent=%s model=%s",
+                module,
+                intent,
+                settings.deepseek_model,
+            )
         except Exception as exc:
             # 外部模型故障不应阻断归档，保留本地规则结果并让用户核对。
             logger.warning("DeepSeek extraction unavailable, using local rules: %s", exc)
             response = extract_response(text or "", module, provider_note, intent)
+            reason = _deepseek_failure_reason(exc)
+            response["note"] = f"DeepSeek 本次未成功（{reason}），已使用本地规则整理。请核对字段后保存。"
     return AIExtractResponse(**response)
 
 

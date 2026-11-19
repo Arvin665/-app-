@@ -11,21 +11,29 @@
         <view class="version-tag"><text>内部原型</text><text>1.1.0</text></view>
       </view>
 
-      <view class="capability-strip">
-        <view class="capability-item">
-          <view class="capability-icon active"><FileText :size="18" /></view>
-          <text class="capability-title">文档提取</text>
-          <text class="capability-state">可用</text>
+      <view class="capability-section">
+        <view class="capability-head">
+          <view>
+            <text class="section-kicker">LIVE CAPABILITIES</text>
+            <text class="capability-heading">识别能力</text>
+            <text class="capability-summary">{{ capabilitySummary }}</text>
+          </view>
+          <view class="capability-refresh pressable" @tap="loadCapabilities">
+            <LoaderCircle v-if="capabilitiesLoading" :size="15" class="spin" />
+            <RefreshCw v-else :size="15" />
+          </view>
         </view>
-        <view class="capability-item">
-          <view class="capability-icon active"><Mic :size="18" /></view>
-          <text class="capability-title">语音 / 音视频</text>
-          <text class="capability-state" :class="{ 'pending-text': !asrAvailable }">{{ asrAvailable ? "离线识别" : "待配置" }}</text>
-        </view>
-        <view class="capability-item">
-          <view class="capability-icon" :class="ocrAvailable ? 'active' : 'pending'"><ScanText :size="18" /></view>
-          <text class="capability-title">图片 OCR</text>
-          <text class="capability-state" :class="{ 'pending-text': !ocrAvailable }">{{ ocrAvailable ? "本地可用" : "待配置" }}</text>
+        <StatePanel v-if="capabilitiesLoading" compact state="loading" title="正在读取识别能力" description="正在确认 OCR、语音转写和智能整理服务状态。" />
+        <StatePanel v-else-if="capabilitiesError" compact state="error" title="能力状态暂时没有读取出来" :description="capabilitiesError" action-text="重新读取" @action="loadCapabilities" />
+        <view v-else class="capability-grid">
+          <view v-for="item in capabilityItems" :key="item.key" class="capability-card">
+            <view class="capability-icon" :class="item.available ? 'active' : 'pending'"><component :is="item.icon" :size="18" /></view>
+            <view class="capability-copy">
+              <text class="capability-title">{{ item.title }}</text>
+              <text class="capability-state" :class="{ 'pending-text': !item.available }">{{ item.state }}</text>
+              <text class="capability-detail">{{ item.detail }}</text>
+            </view>
+          </view>
         </view>
       </view>
 
@@ -73,10 +81,10 @@
         <text class="section-kicker">CURRENT LIMITS</text>
         <text class="section-title">当前边界</text>
         <view class="boundary-list">
-          <view class="boundary-row"><view class="dot"></view><text>后端文字理解使用本地规则，不调用第三方大模型，结果需要人工核对。</text></view>
-          <view class="boundary-row"><view class="dot"></view><text>图片和扫描 PDF 使用服务器本地 OCR，识别结果可搜索，也需要人工核对。</text></view>
-          <view class="boundary-row"><view class="dot"></view><text>H5 与 App 都会先把录音上传到后台离线识别，避免原生语音模块返回空内容。</text></view>
-          <view class="boundary-row"><view class="dot"></view><text>音频和视频先在本机提取音轨，再转写为可搜索文字。</text></view>
+          <view class="boundary-row"><view class="dot"></view><text>{{ nlpBoundaryText }}</text></view>
+          <view class="boundary-row"><view class="dot"></view><text>{{ ocrBoundaryText }}</text></view>
+          <view class="boundary-row"><view class="dot"></view><text>语音录音会优先交给后台离线识别；识别结果会进入核对流程，不会直接当作事实写入。</text></view>
+          <view class="boundary-row"><view class="dot"></view><text>{{ mediaBoundaryText }}</text></view>
           <view class="boundary-row"><view class="dot"></view><text>{{ capabilityNotice }}</text></view>
         </view>
       </view>
@@ -97,27 +105,99 @@ import {
   Boxes,
   CloudCheck,
   FileText,
+  LoaderCircle,
   Mic,
+  RefreshCw,
+  Sparkles,
   ScanText,
   ShieldCheck,
 } from "@lucide/vue";
 import PageHeader from "../../components/PageHeader.vue";
+import StatePanel from "../../components/StatePanel.vue";
 import { request } from "../../services/api";
 
 const capabilities = ref(null);
+const capabilitiesLoading = ref(false);
+const capabilitiesError = ref("");
 const ocrAvailable = computed(() => Boolean(capabilities.value?.ocr?.available));
 const asrAvailable = computed(() => Boolean(capabilities.value?.asr?.available));
+const mediaAvailable = computed(() => Boolean(capabilities.value?.media?.available));
+const nlpAvailable = computed(() => capabilities.value?.nlp?.available !== false);
+const deepseekConfigured = computed(() => Boolean(capabilities.value?.nlp?.deepseek_configured));
+const nlpMode = computed(() => capabilities.value?.nlp?.mode || "local-rule");
+const capabilitySummary = computed(() => {
+  if (capabilitiesLoading.value) return "正在读取服务端真实状态";
+  if (capabilitiesError.value) return "状态读取失败，原件仍会安全保存";
+  if (deepseekConfigured.value) return "DeepSeek 已连接，识别结果进入人工核对";
+  return "当前使用本地规则整理，配置 DeepSeek 后可增强语义识别";
+});
+const capabilityItems = computed(() => [
+  {
+    key: "documents",
+    title: "文档与原件",
+    state: "原件可存",
+    detail: "文档提取后保留可检索正文",
+    available: true,
+    icon: FileText,
+  },
+  {
+    key: "ocr",
+    title: "图片与扫描件",
+    state: ocrAvailable.value ? "本地 OCR" : "待配置",
+    detail: ocrAvailable.value ? "图片、扫描 PDF 可提取正文" : "原件保存不受影响",
+    available: ocrAvailable.value,
+    icon: ScanText,
+  },
+  {
+    key: "speech",
+    title: "语音与音视频",
+    state: asrAvailable.value ? "离线转写" : "待配置",
+    detail: asrAvailable.value ? (mediaAvailable.value ? "录音与音轨可转写" : "录音可转写，音视频待配置") : "可先用文字记录",
+    available: asrAvailable.value,
+    icon: Mic,
+  },
+  {
+    key: "nlp",
+    title: "智能整理",
+    state: nlpAvailable.value ? (nlpMode.value === "deepseek" ? "DeepSeek" : "本地规则") : "不可用",
+    detail: nlpAvailable.value ? "分类、字段提取和计划拆分" : "等待后端能力恢复",
+    available: nlpAvailable.value,
+    icon: Sparkles,
+  },
+]);
 const capabilityNotice = computed(
   () => capabilities.value?.notice || "正在读取后台识别能力；原件仍会安全保存。",
 );
+const nlpBoundaryText = computed(() =>
+  deepseekConfigured.value
+    ? "DeepSeek 已连接，用于文字纠错、字段提取和计划拆分；所有结果都要先核对再保存。"
+    : "当前未连接 DeepSeek，智能整理会使用本地规则；配置 API Key 后自动切换。",
+);
+const ocrBoundaryText = computed(() =>
+  ocrAvailable.value
+    ? "图片和扫描 PDF 使用服务器本地 OCR，识别结果可搜索，也需要人工核对。"
+    : "当前 OCR 尚未可用，图片和 PDF 原件仍会完整保存。",
+);
+const mediaBoundaryText = computed(() =>
+  mediaAvailable.value
+    ? "音频和视频会先提取音轨，再转写为可搜索文字。"
+    : "当前音视频转码尚未可用，原件仍会先保存，可稍后重试转写。",
+);
 
-onLoad(async () => {
+async function loadCapabilities() {
+  if (capabilitiesLoading.value) return;
+  capabilitiesLoading.value = true;
+  capabilitiesError.value = "";
   try {
     capabilities.value = await request("/ai/capabilities");
   } catch (error) {
-    capabilities.value = null;
+    capabilitiesError.value = error.message || "无法读取识别能力，请检查网络和资料库服务。";
+  } finally {
+    capabilitiesLoading.value = false;
   }
-});
+}
+
+onLoad(loadCapabilities);
 </script>
 
 <style scoped>
@@ -243,6 +323,90 @@ onLoad(async () => {
 }
 .pending-text {
   color: var(--warning);
+}
+.capability-section {
+  margin: 18px 16px 0;
+}
+.capability-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.capability-heading {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 730;
+  line-height: 24px;
+}
+.capability-summary {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 19px;
+}
+.capability-refresh {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--accent);
+}
+.capability-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 11px;
+}
+.capability-card {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.capability-copy {
+  min-width: 0;
+  flex: 1;
+}
+.capability-card .capability-icon {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 8px;
+}
+.capability-card .capability-title {
+  display: block;
+  margin-top: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+}
+.capability-card .capability-state {
+  display: block;
+  margin-top: 2px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+}
+.capability-detail {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 15px;
 }
 .about-section {
   margin: 24px 16px 0;

@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 import zipfile
 import wave
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 # 测试必须在导入应用前设置环境变量，确保使用独立 SQLite 文件而不触碰开发数据库。
 ARTIFACTS = Path(__file__).parent / "test_artifacts"
@@ -18,13 +18,19 @@ os.environ["BOOTSTRAP_INVITE_CODE"] = "246810"
 os.environ["SENSITIVE_FIELD_KEY"] = "test-secret-key-with-sufficient-length"
 os.environ["UPLOAD_DIR"] = str(ARTIFACTS / "uploads")
 os.environ["PUBLIC_BASE_URL"] = "http://testserver"
+os.environ["AI_PROVIDER"] = "auto"
+# 测试不能因为开发机配置了真实 Key 而发起付费 API 调用。
+os.environ["DEEPSEEK_API_KEY"] = ""
 
 from fastapi.testclient import TestClient  # noqa: E402
 from openpyxl import Workbook, load_workbook  # noqa: E402
 from io import BytesIO  # noqa: E402
 from PIL import Image  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 
-from app.main import app  # noqa: E402
+from app.db.session import SessionLocal  # noqa: E402
+from app.main import app, seed_bootstrap_admin_invite  # noqa: E402
+from app.models import Device, InviteCode  # noqa: E402
 
 ADMIN_ID = "a" * 32
 MEMBER_ID = "b" * 32
@@ -63,6 +69,48 @@ def upload_material(
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def test_existing_admin_disables_legacy_bootstrap_invite():
+    temporary_admin_id = "c" * 32
+    with TestClient(app):
+        with SessionLocal() as db:
+            existing_admin = db.scalar(
+                select(Device).where(Device.role_level == 1, Device.status == 1)
+            )
+            created_temporary_admin = existing_admin is None
+            if created_temporary_admin:
+                db.add(
+                    Device(
+                        device_id=temporary_admin_id,
+                        device_name="升级测试管理员",
+                        invite_code="246810",
+                        role_level=1,
+                        bind_time=datetime.now(),
+                        last_online_time=datetime.now(),
+                        status=1,
+                    )
+                )
+            invite = db.scalar(select(InviteCode).where(InviteCode.invite_code == "246810"))
+            assert invite is not None
+            original_status = invite.status
+            original_max_use_count = invite.max_use_count
+            invite.status = 1
+            invite.max_use_count = 10
+            db.commit()
+
+        seed_bootstrap_admin_invite()
+
+        with SessionLocal() as db:
+            invite = db.scalar(select(InviteCode).where(InviteCode.invite_code == "246810"))
+            assert invite is not None and invite.status == 0
+            invite.status = original_status
+            invite.max_use_count = original_max_use_count
+            if created_temporary_admin:
+                temporary_admin = db.get(Device, temporary_admin_id)
+                if temporary_admin is not None:
+                    db.delete(temporary_admin)
+            db.commit()
 
 
 def test_full_business_flow():
@@ -344,7 +392,7 @@ def test_full_business_flow():
         assert xlsx_material["material_id"] in backup_material_ids
         assert image_material["material_id"] in backup_material_ids
         assert private_backup_material["material_id"] not in backup_material_ids
-        assert backup_data["version"] == 2
+        assert backup_data["version"] == 3
         assert "备份不得包含的成员私有内容" not in backup_work_contents
         assert "管理员私有灵感" in backup_inspiration_contents
         assert "备份不得包含的成员私有灵感" not in backup_inspiration_contents
@@ -591,6 +639,8 @@ def test_ai_extract_keeps_local_result_when_deepseek_fails(monkeypatch):
         assert result["provider"] == "local-rule"
         assert result["fields"]["deal_total_price"] == "32000.00"
         assert result["corrected_text"] is None
+        assert "DeepSeek 本次未成功" in result["note"]
+
 
 def test_ai_extract_smart_lease_fields_and_end_date():
     with TestClient(app) as client:
@@ -615,6 +665,54 @@ def test_ai_extract_smart_lease_fields_and_end_date():
         assert fields["rent_price"] == "8"
         assert fields["ext_field_3"] == "6.5"
         assert fields["end_date"] == "2029-02-28"
+
+
+def test_ai_extract_distinguishes_net_and_gross_rent_in_either_order():
+    with TestClient(app) as client:
+        bind(client, ADMIN_ID, "246810")
+        response = client.post(
+            "/api/v1/ai/extract",
+            headers=headers(ADMIN_ID),
+            data={
+                "module": "lease",
+                "text": "净租金每天每平方米6.5元，租金每天每平方米8元",
+            },
+        )
+        assert response.status_code == 200, response.text
+        fields = response.json()["fields"]
+        assert fields["ext_field_3"] == "6.5"
+        assert fields["rent_price"] == "8"
+
+
+def test_ai_extract_local_fallback_handles_full_lease_dictation():
+    with TestClient(app) as client:
+        bind(client, ADMIN_ID, "246810")
+        response = client.post(
+            "/api/v1/ai/extract",
+            headers=headers(ADMIN_ID),
+            data={
+                "module": "lease",
+                "text": (
+                    "有一家企业叫新湖期货的一家子公司营业部，在新上海国际大厦的17楼做一套240房的面积，"
+                    "净租金3.5块钱，面价的话是5块钱，租期签了3年，三个月的免租金和装修期。"
+                    "然后的话是2026年的12月1号起租的，帮我记录一下。"
+                ),
+            },
+        )
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result["provider"] == "local-rule"
+        fields = result["fields"]
+        assert fields["company_name"] == "新湖期货的一家子公司营业部"
+        assert fields["new_project"] == "新上海国际大厦"
+        assert fields["floor"] == "17楼"
+        assert fields["new_area"] == "240"
+        assert fields["ext_field_3"] == "3.5"
+        assert fields["rent_price"] == "5"
+        assert fields["lease_term"] == "3"
+        assert fields["rent_free_period"] == "3"
+        assert fields["start_date"] == "2026-12-01"
+        assert fields["end_date"] == "2029-11-30"
 
 
 def test_ai_extract_splits_continuous_plan_dictation():
@@ -679,3 +777,228 @@ def test_ai_extract_deepseek_plan_candidates(monkeypatch):
         assert captured["intent"] == "plans"
         assert len(result["plan_candidates"]) == 2
         assert result["plan_candidates"][1]["ext_field_4"] == "15:00"
+
+
+def test_plan_normalization_corrects_relative_date_and_keeps_missing_times(monkeypatch):
+    from app.services import ai_smart
+
+    text = (
+        "帮我做一个工作计划：明天上午10点半带创元期货复看房子；"
+        "回公司之后处理开泰远景的材料事情，然后做回访；下午继续做我的APP开发。"
+    )
+    monkeypatch.setattr(ai_smart, "application_today", lambda: date(2026, 11, 17))
+    local_candidates = ai_smart.plan_candidates_from_text(text, "plans")
+    assert len(local_candidates) == 4
+    assert local_candidates[0]["content"] == "带创元期货复看房子"
+    assert all(item["record_date"] == "2026-11-18" for item in local_candidates)
+    assert [item["ext_field_4"] for item in local_candidates[:1]] == ["10:30"]
+    assert all(item["ext_field_4"] is None for item in local_candidates[1:])
+
+    payload = {
+        "fields": {"record_type": "待办计划", "content": local_candidates[0]["content"]},
+        "confidence": {"content": 0.95},
+        "plan_candidates": [
+            {
+                "content": item["content"],
+                "record_date": "2026-11-17",
+                "ext_field_4": item["ext_field_4"],
+                "confidence": 0.9,
+                "source_text": item["source_text"],
+            }
+            for item in local_candidates
+        ],
+    }
+    normalized = ai_smart._normalize_ai_payload("work", payload, text, "plans")
+    assert len(normalized["plan_candidates"]) == 4
+    assert all(item["record_date"] == "2026-11-18" for item in normalized["plan_candidates"])
+    assert normalized["fields"]["record_date"] == "2026-11-18"
+    assert normalized["fields"]["ext_field_4"] == "10:30"
+
+
+def test_work_log_batch_is_atomic_and_respects_archive_lock():
+    with TestClient(app) as client:
+        bind(client, ADMIN_ID, "246810")
+        response = client.post(
+            "/api/v1/work-logs/batch",
+            headers=headers(ADMIN_ID),
+            json={
+                "items": [
+                    {
+                        "record_type": "待办计划",
+                        "record_date": "2035-01-01",
+                        "ext_field_4": "10:00",
+                        "content": "批量计划一",
+                    },
+                    {
+                        "record_type": "待办计划",
+                        "record_date": "2035-01-01",
+                        "content": "批量计划二",
+                    },
+                ]
+            },
+        )
+        assert response.status_code == 201, response.text
+        assert response.json()["count"] == 2
+        assert [item["content"] for item in response.json()["items"]] == ["批量计划一", "批量计划二"]
+
+        rejected = client.post(
+            "/api/v1/work-logs/batch",
+            headers=headers(ADMIN_ID),
+            json={
+                "items": [
+                    {
+                        "record_type": "待办计划",
+                        "record_date": "2035-01-02",
+                        "content": "不应保存的批量计划",
+                    },
+                    {
+                        "record_type": "每日心得",
+                        "record_date": "2035-01-02",
+                        "content": "混入的普通记录",
+                    },
+                ]
+            },
+        )
+        assert rejected.status_code == 422
+        after_reject = client.get(
+            "/api/v1/work-logs?record_date=2035-01-02&page_size=100",
+            headers=headers(ADMIN_ID),
+        )
+        assert after_reject.json()["total"] == 0
+
+        lock_date = "2035-01-03"
+        seed = client.post(
+            "/api/v1/work-logs",
+            headers=headers(ADMIN_ID),
+            json={"record_type": "待办计划", "record_date": lock_date, "content": "归档种子计划"},
+        )
+        assert seed.status_code == 201, seed.text
+        archived = client.post(
+            "/api/v1/work-logs/archive-daily",
+            headers=headers(ADMIN_ID),
+            json={"record_date": lock_date, "insight": "锁定测试"},
+        )
+        assert archived.status_code == 200, archived.text
+        locked = client.post(
+            "/api/v1/work-logs/batch",
+            headers=headers(ADMIN_ID),
+            json={
+                "items": [
+                    {"record_type": "待办计划", "record_date": lock_date, "content": "锁定后新增计划"},
+                ]
+            },
+        )
+        assert locked.status_code == 409
+        after_lock = client.get(
+            f"/api/v1/work-logs?record_date={lock_date}&page_size=100",
+            headers=headers(ADMIN_ID),
+        )
+        assert all(item["content"] != "锁定后新增计划" for item in after_lock.json()["items"])
+
+
+def test_workspace_links_search_context_and_signed_files():
+    project = "环贸广场二期测试楼"
+    with TestClient(app) as client:
+        bind(client, ADMIN_ID, "246810")
+        invite = client.post(
+            "/api/v1/admin/invites",
+            headers=headers(ADMIN_ID),
+            json={"max_use_count": 2, "role_level": 2},
+        )
+        assert invite.status_code == 201, invite.text
+        bind(client, MEMBER_ID, invite.json()["invite_code"])
+
+        sale = client.post(
+            "/api/v1/sales",
+            headers=headers(ADMIN_ID),
+            json={"project_name": project, "district": "徐汇-徐家汇", "deal_date": "2026-11-19"},
+        )
+        assert sale.status_code == 201, sale.text
+        lease = client.post(
+            "/api/v1/leases",
+            headers=headers(ADMIN_ID),
+            json={"company_name": "闭环测试企业", "new_project": "环贸广场二期", "lease_type": "新租"},
+        )
+        assert lease.status_code == 201, lease.text
+        shared_work = client.post(
+            "/api/v1/work-logs",
+            headers=headers(MEMBER_ID),
+            json={"record_type": "客户跟进", "record_date": "2026-11-19", "content": "环贸广场二期客户回访", "related_project": "环贸广场二期", "is_shared": 1},
+        )
+        assert shared_work.status_code == 201, shared_work.text
+
+        context = client.get(
+            f"/api/v1/workspace/records/sale/{sale.json()['record_id']}/context",
+            headers=headers(MEMBER_ID),
+        )
+        assert context.status_code == 200, context.text
+        suggestion_keys = {(item["module"], item["record_id"]) for item in context.json()["suggestions"]["items"]}
+        assert ("lease", lease.json()["record_id"]) in suggestion_keys
+        assert ("work", shared_work.json()["record_id"]) in suggestion_keys
+
+        linked = client.post(
+            "/api/v1/workspace/links",
+            headers=headers(MEMBER_ID),
+            json={"source_module": "sale", "source_record_id": sale.json()["record_id"], "target_module": "lease", "target_record_id": lease.json()["record_id"], "relation_type": "same_project", "note": "同一楼宇交易与租赁"},
+        )
+        assert linked.status_code == 200, linked.text
+        assert linked.json()["created"] is True
+        link_id = linked.json()["link"]["link_id"]
+
+        context = client.get(
+            f"/api/v1/workspace/records/sale/{sale.json()['record_id']}/context",
+            headers=headers(MEMBER_ID),
+        )
+        assert context.json()["links"]["total"] == 1
+        assert all(item["record_id"] != lease.json()["record_id"] for item in context.json()["suggestions"]["items"])
+
+        material = upload_material(
+            client,
+            MEMBER_ID,
+            "sale",
+            "环贸广场尽调材料.txt",
+            "环贸广场二期权属和租赁材料。".encode("utf-8"),
+            "text/plain",
+            sale.json()["record_id"],
+        )
+        search = client.get(
+            "/api/v1/workspace/search?keyword=环贸广场", headers=headers(MEMBER_ID)
+        )
+        assert search.status_code == 200, search.text
+        search_kinds = {(item["kind"], item["entity_id"]) for item in search.json()["items"]}
+        assert ("record", sale.json()["record_id"]) in search_kinds
+        assert ("material", material["material_id"]) in search_kinds
+
+        signed = client.get(material["file_url"])
+        assert signed.status_code == 200
+        assert signed.content.decode("utf-8") == "环贸广场二期权属和租赁材料。"
+        tampered = material["file_url"][:-1] + ("0" if material["file_url"][-1] != "0" else "1")
+        assert client.get(tampered).status_code == 403
+        raw_path = f"/uploads/materials/sale/{material['material_id']}/{material['material_id']}.txt"
+        assert client.get(raw_path).status_code == 404
+
+        private_work = client.post(
+            "/api/v1/work-logs",
+            headers=headers(MEMBER_ID),
+            json={"record_type": "每日心得", "record_date": "2026-11-19", "content": "环贸广场二期私有判断", "related_project": "环贸广场二期", "is_shared": 0},
+        )
+        assert private_work.status_code == 201, private_work.text
+        forbidden_link = client.post(
+            "/api/v1/workspace/links",
+            headers=headers(ADMIN_ID),
+            json={"source_module": "sale", "source_record_id": sale.json()["record_id"], "target_module": "work", "target_record_id": private_work.json()["record_id"]},
+        )
+        assert forbidden_link.status_code == 404
+        admin_search = client.get(
+            "/api/v1/workspace/search?keyword=私有判断", headers=headers(ADMIN_ID)
+        )
+        assert all(item["entity_id"] != private_work.json()["record_id"] for item in admin_search.json()["items"])
+
+        backup = client.get("/api/v1/admin/backup", headers=headers(ADMIN_ID))
+        with zipfile.ZipFile(BytesIO(backup.content)) as package:
+            backup_data = json.loads(package.read("database.json"))
+        assert any(row["link_id"] == link_id for row in backup_data["tables"]["sys_record_link"])
+
+        unlinked = client.delete(f"/api/v1/workspace/links/{link_id}", headers=headers(ADMIN_ID))
+        assert unlinked.status_code == 200, unlinked.text
+        assert client.get(f"/api/v1/workspace/links?module=sale&record_id={sale.json()['record_id']}", headers=headers(MEMBER_ID)).json()["total"] == 0

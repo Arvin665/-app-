@@ -21,7 +21,7 @@
         <view class="panel-icon"><KeyRound :size="20" /></view>
         <view>
           <text class="panel-title">进入团队资料库</text>
-          <text class="panel-desc">输入 6 位邀请码，设备只需绑定一次。</text>
+          <text class="panel-desc">输入管理员提供的 6 位邀请码，设备只需绑定一次。</text>
         </view>
       </view>
 
@@ -68,6 +68,11 @@
         </view>
         <text v-if="serviceProbe?.message" class="server-hint">{{ serviceProbe.message }}</text>
       </view>
+      <view v-if="serviceProbe && !serviceProbe.ok && !serverExpanded" class="service-failure">
+        <CircleAlert :size="16" />
+        <text>{{ serviceProbe.message }}</text>
+        <button class="failure-retry pressable" :disabled="probing" @tap="retryService">重新检测</button>
+      </view>
 
       <view v-if="bootstrapInviteHint" class="bootstrap-hint">
         <view class="hint-copy">
@@ -84,7 +89,15 @@
       </view>
 
       <view v-if="errorMessage" class="error-banner">
-        <text>{{ errorMessage }}</text>
+        <CircleAlert :size="18" class="error-icon" />
+        <view class="error-copy">
+          <text class="error-title">{{ errorIsConnection ? "没有连上资料库服务" : "邀请码没有通过验证" }}</text>
+          <text class="error-message">{{ errorMessage }}</text>
+        </view>
+        <button v-if="errorIsConnection" class="error-retry pressable" :disabled="probing" @tap="retryService">
+          <RotateCcw :size="14" />
+          <text>检测</text>
+        </button>
       </view>
 
       <button class="bind-button pressable" :disabled="loading || inviteCode.length !== 6" @tap="submit">
@@ -99,13 +112,41 @@
       <text>资料默认只对团队开放，个人灵感只属于你自己。</text>
     </view>
 
+    <view class="access-help">
+      <view class="access-help-head">
+        <view class="access-help-icon"><HelpCircle :size="18" /></view>
+        <view>
+          <text class="access-help-title">邀请码从哪里来</text>
+          <text class="access-help-note">先确认自己该用哪一种，再输入。</text>
+        </view>
+      </view>
+      <view class="access-help-row">
+        <text class="access-help-label">首次部署</text>
+        <text class="access-help-value">后端默认是 246810；如果改过 BOOTSTRAP_INVITE_CODE，以新值为准。</text>
+      </view>
+      <view class="access-help-row">
+        <text class="access-help-label">团队成员</text>
+        <text class="access-help-value">向团队管理员获取邀请码；失效后请管理员重新生成。</text>
+      </view>
+    </view>
+
     <text class="help">邀请码失效时，请联系团队管理员重新生成。</text>
   </view>
 </template>
 
 <script setup>
 import { onMounted, ref } from "vue";
-import { ArrowRight, Check, KeyRound, LoaderCircle, Server, ShieldCheck } from "@lucide/vue";
+import {
+  ArrowRight,
+  Check,
+  CircleAlert,
+  HelpCircle,
+  KeyRound,
+  LoaderCircle,
+  RotateCcw,
+  Server,
+  ShieldCheck,
+} from "@lucide/vue";
 import ModuleMark from "../../components/ModuleMark.vue";
 import { moduleList } from "../../data/modules";
 import { bindDevice, getSession } from "../../services/session";
@@ -113,6 +154,7 @@ import { API_BASE_URL, probeService, setApiBaseUrl } from "../../services/api";
 
 const inviteCode = ref("");
 const errorMessage = ref("");
+const errorIsConnection = ref(false);
 const probing = ref(false);
 const serviceProbe = ref(null);
 const serverExpanded = ref(false);
@@ -122,23 +164,41 @@ const previewModules = moduleList;
 const configuredInviteHint = String(import.meta.env.VITE_BOOTSTRAP_INVITE_HINT || "")
   .replace(/\D/g, "")
   .slice(0, 6);
-const bootstrapInviteHint = configuredInviteHint || (import.meta.env.DEV ? "246810" : "");
+const bootstrapInviteHint = configuredInviteHint || "246810";
 
 async function probe() {
   if (probing.value) return serviceProbe.value;
   probing.value = true;
-  serviceProbe.value = await probeService();
-  probing.value = false;
-  serverAddress.value = serviceProbe.value.baseUrl;
-  return serviceProbe.value;
+  try {
+    serviceProbe.value = await probeService();
+    serverAddress.value = serviceProbe.value.baseUrl;
+    if (serviceProbe.value.ok && errorIsConnection.value) errorMessage.value = "";
+    return serviceProbe.value;
+  } catch (error) {
+    serviceProbe.value = {
+      ok: false,
+      baseUrl: serverAddress.value,
+      message: error.message || "服务连接检测失败",
+    };
+    return serviceProbe.value;
+  } finally {
+    probing.value = false;
+  }
 }
 
 async function saveServer() {
   errorMessage.value = "";
+  errorIsConnection.value = false;
   serverAddress.value = setApiBaseUrl(serverAddress.value);
   const result = await probe();
   if (!result.ok) serverExpanded.value = true;
   else serverExpanded.value = false;
+}
+
+async function retryService() {
+  serverExpanded.value = true;
+  const result = await probe();
+  if (result.ok) uni.showToast({ title: "资料库服务已连接", icon: "success" });
 }
 
 function filterCode(event) {
@@ -151,6 +211,7 @@ function fillBootstrapInvite() {
 
 async function submit() {
   errorMessage.value = "";
+  errorIsConnection.value = false;
   if (inviteCode.value.length !== 6 || loading.value) return;
   loading.value = true;
   try {
@@ -158,8 +219,8 @@ async function submit() {
     uni.reLaunch({ url: "/pages/home/index" });
   } catch (error) {
     errorMessage.value = error.message || "邀请码验证失败";
-    if (error.status === 0) serverExpanded.value = true;
-    uni.showToast({ title: errorMessage.value, icon: "none", duration: 3200 });
+    errorIsConnection.value = error.status === 0;
+    if (errorIsConnection.value) serverExpanded.value = true;
   } finally {
     loading.value = false;
   }
@@ -488,14 +549,16 @@ if (session?.device_id) {
   line-height: 30px;
 }
 .error-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
   margin-top: 10px;
-  padding: 9px 10px;
-  border: 1px solid rgba(244, 177, 133, 0.28);
-  border-radius: 7px;
-  background: rgba(193, 92, 38, 0.16);
+  padding: 11px;
+  border: 1px solid rgba(244, 177, 133, 0.32);
+  border-radius: 8px;
+  background: rgba(193, 92, 38, 0.18);
   color: #ffd2b6;
-  font-size: 9px;
-  line-height: 15px;
+  line-height: 18px;
 }
 .bind-button {
   width: 100%;
@@ -533,6 +596,163 @@ if (session?.device_id) {
 }
 .spin {
   animation: spin 900ms linear infinite;
+}
+
+.error-icon,
+.service-failure svg {
+  flex: none;
+  margin-top: 1px;
+}
+.error-copy {
+  min-width: 0;
+  flex: 1;
+}
+.error-title {
+  display: block;
+  color: #ffe3d3;
+  font-size: 12px;
+  font-weight: 700;
+}
+.error-message {
+  display: block;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  color: #e9b99a;
+  font-size: 11px;
+  line-height: 17px;
+}
+.error-retry,
+.failure-retry {
+  min-height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 210, 182, 0.34);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #ffe3d3;
+  font-size: 10px;
+  line-height: 28px;
+}
+.service-failure {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid rgba(244, 177, 133, 0.22);
+  border-radius: 7px;
+  background: rgba(193, 92, 38, 0.12);
+  color: #f1b28d;
+  font-size: 10px;
+  line-height: 16px;
+}
+.service-failure text {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.access-help {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.access-help-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.access-help-icon {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.access-help-title {
+  display: block;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+}
+.access-help-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.access-help-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.access-help-label {
+  width: 58px;
+  flex: none;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+}
+.access-help-value {
+  min-width: 0;
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 19px;
+}
+.bind-panel,
+.preview-item,
+.code-shell {
+  border-radius: 8px;
+}
+.brand-name,
+.panel-desc,
+.service-title,
+.service-state,
+.service-action,
+.server-input,
+.server-button,
+.server-hint,
+.hint-label,
+.hint-desc,
+.security-note,
+.help {
+  font-size: 11px;
+}
+.preview-kicker {
+  font-size: 9px;
+  letter-spacing: 0;
+}
+@media (max-width: 360px) {
+  .bind-page {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .brand-title {
+    font-size: 30px;
+    line-height: 39px;
+  }
+  .bind-panel {
+    padding: 15px;
+  }
+  .code-input {
+    letter-spacing: 4px;
+  }
+  .service-failure {
+    flex-wrap: wrap;
+  }
 }
 @keyframes spin {
   to { transform: rotate(360deg); }

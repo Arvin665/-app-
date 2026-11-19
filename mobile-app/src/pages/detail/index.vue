@@ -34,6 +34,23 @@
           </view>
         </view>
 
+        <StatusNotice
+          v-if="cacheNotice"
+          tone="warning"
+          title="正在显示本机缓存"
+          :message="cacheNotice"
+          action-text="重新连接"
+          @action="loadDetail"
+        />
+        <StatusNotice
+          v-if="actionError"
+          tone="error"
+          title="这次操作没有完成"
+          :message="actionError"
+          closeable
+          @close="actionError = ''"
+        />
+
         <view class="section-card">
           <view class="section-head">
             <view>
@@ -69,6 +86,65 @@
               <text class="material-empty-note">照片、PDF、表格或其他文件都可以</text>
             </view>
             <ChevronRight :size="16" />
+          </view>
+          <view v-if="materialsError" class="material-error">
+            <TriangleAlert :size="16" />
+            <text>{{ materialsError }}</text>
+          </view>
+        </view>
+
+        <view class="section-card link-card">
+          <view class="section-head">
+            <view>
+              <text class="section-kicker">CONNECTED RECORDS</text>
+              <text class="section-title">关联记录</text>
+            </view>
+            <text class="field-total">{{ linkedRecords.length }} 条</text>
+          </view>
+
+          <view v-if="linkedRecords.length" class="link-list">
+            <view v-for="item in linkedRecords" :key="item.link_id" class="link-row pressable" @tap="openRelated(item)">
+              <ModuleMark :module-key="item.module" size="sm" />
+              <view class="link-copy">
+                <view class="link-meta-line">
+                  <text class="link-module">{{ item.module_label }}</text>
+                  <text class="link-date">{{ item.business_date || "日期待补充" }}</text>
+                </view>
+                <text class="link-title">{{ item.title }}</text>
+                <text class="link-note">{{ item.note || item.subtitle || item.relation_label }}</text>
+              </view>
+              <view v-if="item.can_remove" class="unlink-action pressable" @tap.stop="removeLink(item)">
+                <LoaderCircle v-if="linkingId === item.link_id" :size="15" class="spin" />
+                <Unlink v-else :size="15" />
+              </view>
+            </view>
+          </view>
+          <view v-else class="link-empty">
+            <Link2 :size="18" />
+            <text>还没有确认关联。下面有相似记录时，可以手动建立联系。</text>
+          </view>
+
+          <view v-if="suggestedRecords.length" class="suggestion-block">
+            <view class="suggestion-head">
+              <text>可能相关</text>
+              <text>确认后再关联，不会自动合并</text>
+            </view>
+            <view v-for="item in suggestedRecords" :key="`${item.module}-${item.record_id}`" class="suggestion-row">
+              <ModuleMark :module-key="item.module" size="sm" />
+              <view class="suggestion-copy" @tap="openRelated(item)">
+                <text class="suggestion-title">{{ item.title }}</text>
+                <text class="suggestion-reason">{{ item.reason }}</text>
+              </view>
+              <button class="link-button pressable" :disabled="linkingId === item.record_id" @tap.stop="addLink(item)">
+                <LoaderCircle v-if="linkingId === item.record_id" :size="13" class="spin" />
+                <text v-else>关联</text>
+              </button>
+            </view>
+          </view>
+
+          <view v-if="linkError" class="material-error">
+            <TriangleAlert :size="16" />
+            <text>{{ linkError }}</text>
           </view>
         </view>
 
@@ -108,10 +184,22 @@
         <view class="page-space"></view>
       </view>
 
-      <view v-else class="loading-page">
-        <LoaderCircle v-if="loading" :size="24" class="spin" />
-        <text>{{ loading ? "正在打开这条记录" : "记录不存在或没有访问权限" }}</text>
-      </view>
+      <StatePanel
+        v-else-if="loading"
+        state="loading"
+        title="正在打开这条记录"
+        description="记录字段和相关资料正在同步。"
+      />
+      <StatePanel
+        v-else
+        state="error"
+        title="这条记录暂时打不开"
+        :description="loadError || '记录可能已经删除，或者当前设备没有访问权限。'"
+        action-text="重新加载"
+        secondary-text="返回历史"
+        @action="loadDetail"
+        @secondary="goHistory"
+      />
     </scroll-view>
   </view>
 </template>
@@ -124,29 +212,47 @@ import {
   ExternalLink,
   FilePlus2,
   FileText,
+  Link2,
   LoaderCircle,
   Paperclip,
   Pencil,
   Plus,
+  Unlink,
   Trash2,
+  TriangleAlert,
   UsersRound,
 } from "@lucide/vue";
 import PageHeader from "../../components/PageHeader.vue";
 import ModuleMark from "../../components/ModuleMark.vue";
 import MaterialRow from "../../components/MaterialRow.vue";
+import StatePanel from "../../components/StatePanel.vue";
+import StatusNotice from "../../components/StatusNotice.vue";
 import { modules, recordDate, recordTitle } from "../../data/modules";
 import { request } from "../../services/api";
 import { getCachedRecords } from "../../services/localDb";
 import { chooseFiles, chooseImages, listMaterials, uploadMaterial } from "../../services/material";
 import { getSession } from "../../services/session";
+import {
+  createRecordLink,
+  deleteRecordLink,
+  getRecordContext,
+} from "../../services/workspace";
 
 const moduleKey = ref("sale");
 const recordId = ref("");
 const record = ref(null);
 const materials = ref([]);
 const attachmentList = ref([]);
+const linkedRecords = ref([]);
+const suggestedRecords = ref([]);
 const loading = ref(true);
+const linkingId = ref("");
+const linkError = ref("");
 const uploading = ref(false);
+const loadError = ref("");
+const cacheNotice = ref("");
+const actionError = ref("");
+const materialsError = ref("");
 const config = computed(() => modules[moduleKey.value]);
 const statusMap = { 0: "未做", 1: "正在做", 2: "已做好", 3: "计划搁置" };
 
@@ -196,13 +302,29 @@ function formatDate(value) {
 
 async function loadDetail() {
   loading.value = true;
+  loadError.value = "";
+  cacheNotice.value = "";
   try {
-    record.value = await request(`/${config.value.endpoint}/${recordId.value}`);
+    const context = await getRecordContext(moduleKey.value, recordId.value);
+    record.value = context.record;
+    materials.value = context.materials?.items || [];
+    attachmentList.value = context.attachments?.items || [];
+    linkedRecords.value = context.links?.items || [];
+    suggestedRecords.value = context.suggestions?.items || [];
+    materialsError.value = "";
+    linkError.value = "";
   } catch (error) {
     record.value = (await getCachedRecords(moduleKey.value)).find((item) => item.record_id === recordId.value) || null;
-    if (!record.value) uni.showToast({ title: error.message || "记录加载失败", icon: "none" });
+    if (record.value) cacheNotice.value = `${error.message || "服务暂时不可用"} 当前展示最近一次保存在本机的内容。`;
+    else {
+      try {
+        record.value = await request(`/${config.value.endpoint}/${recordId.value}`);
+      } catch (detailError) {
+        loadError.value = detailError.message || error.message || "记录加载失败，请检查网络和资料库服务。";
+      }
+    }
+    if (record.value) await Promise.allSettled([loadMaterials(), loadLegacyAttachments()]);
   }
-  await Promise.allSettled([loadMaterials(), loadLegacyAttachments()]);
   loading.value = false;
 }
 
@@ -210,8 +332,10 @@ async function loadMaterials() {
   try {
     const response = await listMaterials({ module: moduleKey.value, recordId: recordId.value, pageSize: 100 });
     materials.value = response.items || [];
+    materialsError.value = "";
   } catch (error) {
     materials.value = [];
+    materialsError.value = error.message || "相关资料暂时没有加载出来。";
   }
 }
 
@@ -224,6 +348,60 @@ async function loadLegacyAttachments() {
   }
 }
 
+async function refreshRelations() {
+  const context = await getRecordContext(moduleKey.value, recordId.value);
+  linkedRecords.value = context.links?.items || [];
+  suggestedRecords.value = context.suggestions?.items || [];
+}
+
+function openRelated(item) {
+  if (!item?.module || !item?.record_id) return;
+  uni.navigateTo({ url: `/pages/detail/index?module=${item.module}&id=${item.record_id}` });
+}
+
+async function addLink(item) {
+  if (linkingId.value) return;
+  linkingId.value = item.record_id;
+  linkError.value = "";
+  try {
+    await createRecordLink({
+      sourceModule: moduleKey.value,
+      sourceRecordId: recordId.value,
+      targetModule: item.module,
+      targetRecordId: item.record_id,
+      relationType: item.relation_type || "related",
+    });
+    await refreshRelations();
+    uni.showToast({ title: "已建立关联", icon: "success" });
+  } catch (error) {
+    linkError.value = error.message || "关联没有建立成功，请稍后重试。";
+  } finally {
+    linkingId.value = "";
+  }
+}
+
+function removeLink(item) {
+  uni.showModal({
+    title: "取消关联",
+    content: "只取消两条记录之间的联系，不会删除任何记录或资料。",
+    confirmColor: "#b64c46",
+    success: async (result) => {
+      if (!result.confirm) return;
+      linkingId.value = item.link_id;
+      linkError.value = "";
+      try {
+        await deleteRecordLink(item.link_id);
+        await refreshRelations();
+        uni.showToast({ title: "已取消关联", icon: "success" });
+      } catch (error) {
+        linkError.value = error.message || "取消关联失败，请稍后重试。";
+      } finally {
+        linkingId.value = "";
+      }
+    },
+  });
+}
+
 function editRecord() {
   uni.navigateTo({ url: `/pages/entry/index?module=${moduleKey.value}&id=${recordId.value}` });
 }
@@ -232,12 +410,17 @@ function openMaterialPage(item) {
   uni.navigateTo({ url: `/pages/material/index?id=${item.material_id}` });
 }
 
+function goHistory() {
+  uni.reLaunch({ url: `/pages/history/index?module=${moduleKey.value}` });
+}
+
 async function chooseMaterial() {
   if (uploading.value) return;
   uni.showActionSheet({
     itemList: ["拍照或从相册选择", "导入任意格式文件"],
     success: async (result) => {
       try {
+        actionError.value = "";
         const files = result.tapIndex === 0
           ? await chooseImages({ count: 9, sourceType: ["album", "camera"] })
           : await chooseFiles({ count: 9 });
@@ -253,7 +436,7 @@ async function chooseMaterial() {
         uni.showToast({ title: `已补充 ${files.length} 份资料`, icon: "success" });
         await loadMaterials();
       } catch (error) {
-        uni.showToast({ title: error.message || error.errMsg || "资料上传失败", icon: "none" });
+        actionError.value = error.message || error.errMsg || "资料上传失败，请稍后重试。";
       } finally {
         uploading.value = false;
       }
@@ -285,11 +468,12 @@ function openAttachment(file) {
 async function toggleShared(event) {
   if (!record.value?.can_edit) return;
   const next = event.detail.value ? 1 : 0;
+  actionError.value = "";
   try {
     record.value = await request(`/work-logs/${recordId.value}`, { method: "PATCH", data: { is_shared: next } });
     uni.showToast({ title: next ? "已设为团队共享" : "已设为仅本人可见", icon: "success" });
   } catch (error) {
-    uni.showToast({ title: error.message || "设置失败", icon: "none" });
+    actionError.value = error.message || "共享设置没有保存成功，请稍后重试。";
   }
 }
 
@@ -306,7 +490,7 @@ function deleteRecord() {
         uni.showToast({ title: "已移入回收站", icon: "success" });
         setTimeout(() => uni.navigateBack(), 450);
       } catch (error) {
-        uni.showToast({ title: error.message || "删除失败", icon: "none" });
+        actionError.value = error.message || "删除失败，请稍后重试。";
       }
     },
   });
@@ -321,6 +505,7 @@ onLoad((options) => {
 onShow(() => {
   if (recordId.value && record.value) {
     loadMaterials();
+    refreshRelations().catch(() => {});
   }
 });
 </script>
@@ -672,5 +857,206 @@ onShow(() => {
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.record-hero,
+.section-card,
+.image-preview {
+  border-radius: 8px;
+}
+.hero-kicker,
+.section-kicker {
+  font-size: 10px;
+  letter-spacing: 0;
+}
+.hero-date,
+.field-total,
+.material-empty-note,
+.legacy-meta,
+.share-desc {
+  font-size: 11px;
+}
+.hero-badge {
+  font-size: 11px;
+  line-height: 17px;
+}
+.edit-button,
+.add-file-button,
+.secondary-action,
+.delete-action {
+  font-size: 13px;
+}
+.section-title {
+  font-size: 16px;
+}
+.field-label,
+.add-more {
+  font-size: 12px;
+}
+.field-value {
+  font-size: 14px;
+  line-height: 21px;
+}
+.field-label {
+  line-height: 21px;
+}
+.material-empty-title,
+.legacy-name,
+.share-title {
+  font-size: 13px;
+}
+.material-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border-radius: 7px;
+  background: var(--warning-bg);
+  color: #8b5128;
+  font-size: 12px;
+  line-height: 18px;
+}
+.material-error svg {
+  flex: none;
+  margin-top: 1px;
+}
+.link-list {
+  margin-top: 8px;
+}
+.link-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 0;
+  border-top: 1px solid var(--border);
+}
+.link-copy {
+  flex: 1;
+  min-width: 0;
+}
+.link-meta-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.link-module {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+}
+.link-date {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.link-title {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-note {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.unlink-action {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-muted);
+}
+.link-empty {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 10px;
+  padding: 11px;
+  border: 1px dashed #cfdcd7;
+  border-radius: 8px;
+  background: #fafcfb;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 17px;
+}
+.suggestion-block {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.suggestion-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 3px;
+}
+.suggestion-head text:first-child {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+.suggestion-head text:last-child {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.suggestion-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-top: 9px;
+}
+.suggestion-copy {
+  flex: 1;
+  min-width: 0;
+}
+.suggestion-title {
+  display: block;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.suggestion-reason {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.link-button {
+  width: 53px;
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 11px;
+}
+.link-button[disabled] {
+  opacity: 0.55;
+}
+.loading-page {
+  display: none;
 }
 </style>

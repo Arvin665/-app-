@@ -67,6 +67,23 @@
         </view>
       </view>
 
+      <StatusNotice
+        v-if="(loadError || materialsError) && (records.length || materials.length)"
+        tone="warning"
+        title="这个模块没有完全同步"
+        :message="syncWarning"
+        action-text="重新加载"
+        @action="loadModule"
+      />
+      <StatusNotice
+        v-if="actionError"
+        tone="error"
+        title="这次资料操作没有完成"
+        :message="actionError"
+        closeable
+        @close="actionError = ''"
+      />
+
       <view class="content-section">
         <view class="section-head">
           <view>
@@ -76,7 +93,9 @@
           <view class="text-link pressable" @tap="openHistory">翻看全部</view>
         </view>
 
-        <view v-if="records.length" class="record-list">
+        <StatePanel v-if="recordsLoading && !records.length" compact state="loading" title="正在整理最近记录" description="正在读取这个模块里已经收好的信息。" />
+        <StatePanel v-else-if="loadError && !records.length" compact state="error" title="最近记录暂时没有加载出来" :description="loadError" action-text="重新加载" @action="loadModule" />
+        <view v-else-if="records.length" class="record-list">
           <view
             v-for="record in records"
             :key="record.record_id"
@@ -98,13 +117,12 @@
             <ChevronRight :size="16" class="record-arrow" />
           </view>
         </view>
-        <view v-else-if="!loading" class="empty-panel pressable" @tap="openEntry(true)">
+        <view v-else class="empty-panel pressable" @tap="openEntry(true)">
           <view class="empty-mark"><Mic :size="25" /></view>
           <text class="empty-title">这里还没有记录</text>
           <text class="empty-desc">先说说最近听到、看到或正在做的一件事。</text>
           <view class="empty-button">开始说</view>
         </view>
-        <view v-else class="loading-panel"><LoaderCircle :size="20" class="spin" /><text>正在整理最近记录</text></view>
       </view>
 
       <view class="content-section material-block">
@@ -116,7 +134,9 @@
           <view class="text-link pressable" @tap="openMaterials">资料库</view>
         </view>
 
-        <view v-if="materials.length" class="material-card">
+        <StatePanel v-if="materialsLoading && !materials.length" compact state="loading" title="正在整理最近资料" description="正在读取原件、缩略图和正文状态。" />
+        <StatePanel v-else-if="materialsError && !materials.length" compact state="error" title="最近资料暂时没有加载出来" :description="materialsError" action-text="重新加载" @action="loadModule" />
+        <view v-else-if="materials.length" class="material-card">
           <MaterialRow
             v-for="item in materials"
             :key="item.material_id"
@@ -157,6 +177,8 @@ import {
 import PageHeader from "../../components/PageHeader.vue";
 import ModuleMark from "../../components/ModuleMark.vue";
 import MaterialRow from "../../components/MaterialRow.vue";
+import StatePanel from "../../components/StatePanel.vue";
+import StatusNotice from "../../components/StatusNotice.vue";
 import { modules, recordDate, recordTitle } from "../../data/modules";
 import { request } from "../../services/api";
 import { chooseFiles, chooseImages, listMaterials, uploadMaterial } from "../../services/material";
@@ -166,10 +188,16 @@ const moduleKey = ref("sale");
 const config = computed(() => modules[moduleKey.value]);
 const records = ref([]);
 const materials = ref([]);
-const loading = ref(false);
+const recordsLoading = ref(false);
+const materialsLoading = ref(false);
+const loading = computed(() => recordsLoading.value || materialsLoading.value);
 const uploading = ref(false);
+const loadError = ref("");
+const materialsError = ref("");
+const actionError = ref("");
 const stats = ref({ records: 0, materials: 0, recent: 0 });
 const materialLookup = ref({});
+const syncWarning = computed(() => [loadError.value, materialsError.value].filter(Boolean).join("；"));
 
 function recordSummary(record) {
   if (moduleKey.value === "sale") {
@@ -229,31 +257,40 @@ function openMaterialPage(material) {
 
 async function loadModule() {
   if (!ensureBound() || loading.value) return;
-  loading.value = true;
-  try {
-    const [recordResult, materialResult] = await Promise.all([
-      request(`/${config.value.endpoint}?page_size=20`),
-      listMaterials({ module: moduleKey.value, pageSize: 20 }),
-    ]);
-    records.value = recordResult.items || [];
-    materials.value = materialResult.items || [];
-    stats.value.records = Number(recordResult.total || records.value.length);
-    stats.value.materials = Number(materialResult.total || materials.value.length);
+  recordsLoading.value = true;
+  materialsLoading.value = true;
+  loadError.value = "";
+  materialsError.value = "";
+  const [recordOutcome, materialOutcome] = await Promise.allSettled([
+    request(`/${config.value.endpoint}?page_size=20`),
+    listMaterials({ module: moduleKey.value, pageSize: 20 }),
+  ]);
+
+  if (recordOutcome.status === "fulfilled") {
+    records.value = recordOutcome.value.items || [];
+    stats.value.records = Number(recordOutcome.value.total || records.value.length);
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 7);
     const cutoffValue = cutoff.toISOString().slice(0, 10);
     stats.value.recent = records.value.filter((record) => recordDate(moduleKey.value, record) >= cutoffValue).length;
+  } else {
+    loadError.value = recordOutcome.reason?.message || "最近记录没有加载出来，请检查网络和资料库服务。";
+  }
 
+  if (materialOutcome.status === "fulfilled") {
+    materials.value = materialOutcome.value.items || [];
+    stats.value.materials = Number(materialOutcome.value.total || materials.value.length);
     const lookup = {};
     for (const item of materials.value) {
       if (item.record_id) lookup[item.record_id] = (lookup[item.record_id] || 0) + 1;
     }
     materialLookup.value = lookup;
-  } catch (error) {
-    uni.showToast({ title: error.message || "模块内容加载失败", icon: "none" });
-  } finally {
-    loading.value = false;
+  } else {
+    materialsError.value = materialOutcome.reason?.message || "最近资料没有加载出来，请检查网络和资料库服务。";
   }
+
+  recordsLoading.value = false;
+  materialsLoading.value = false;
 }
 
 async function chooseMaterial() {
@@ -261,7 +298,9 @@ async function chooseMaterial() {
   uni.showActionSheet({
     itemList: ["拍照或从相册选择", "导入任意格式文件"],
     success: async (result) => {
+      let completed = 0;
       try {
+        actionError.value = "";
         const files = result.tapIndex === 0
           ? await chooseImages({ count: 9, sourceType: ["album", "camera"] })
           : await chooseFiles({ count: 9 });
@@ -269,11 +308,15 @@ async function chooseMaterial() {
         uploading.value = true;
         for (const file of files) {
           await uploadMaterial(file, { module: moduleKey.value, title: file.name.replace(/\.[^.]+$/, "") });
+          completed += 1;
         }
-        uni.showToast({ title: `已收好 ${files.length} 份资料`, icon: "success" });
+        uni.showToast({ title: `已收好 ${completed} 份资料`, icon: "success" });
         await loadModule();
       } catch (error) {
-        uni.showToast({ title: error.message || error.errMsg || "资料上传失败", icon: "none", duration: 2600 });
+        actionError.value = completed
+          ? `已保存 ${completed} 份，剩余资料没有上传成功：${error.message || error.errMsg || "请稍后重试"}`
+          : error.message || error.errMsg || "资料上传失败，请检查文件格式和服务连接后重试。";
+        if (completed) await loadModule();
       } finally {
         uploading.value = false;
       }
@@ -291,7 +334,8 @@ onShow(() => {
 });
 
 onPullDownRefresh(async () => {
-  loading.value = false;
+  recordsLoading.value = false;
+  materialsLoading.value = false;
   await loadModule();
   uni.stopPullDownRefresh();
 });

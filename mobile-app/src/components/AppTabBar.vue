@@ -61,6 +61,9 @@ function go(item) {
 .tab-item.active {
   color: var(--accent);
 }
+.tab-item:active {
+  background: rgba(223, 242, 237, 0.45);
+}
 .tab-icon {
   width: 26px;
   height: 24px;
@@ -69,8 +72,9 @@ function go(item) {
   justify-content: center;
 }
 .tab-label {
-  font-size: 10px;
+  font-size: 11px;
+  letter-spacing: 0;
   font-weight: 650;
-  line-height: 14px;
+  line-height: 15px;
 }
 </style>

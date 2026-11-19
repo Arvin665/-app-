@@ -21,6 +21,23 @@
         </view>
       </view>
 
+      <StatusNotice
+        v-if="loadError && items.length"
+        tone="warning"
+        title="回收站没有完全同步"
+        :message="loadError"
+        action-text="重新加载"
+        @action="loadRecycle"
+      />
+      <StatusNotice
+        v-if="actionError"
+        tone="error"
+        title="这次恢复没有完成"
+        :message="actionError"
+        closeable
+        @close="actionError = ''"
+      />
+
       <view v-if="items.length" class="list-heading">
         <text class="section-kicker">TRASH ARCHIVE</text>
         <text class="section-title">最近删除</text>
@@ -55,13 +72,30 @@
         </view>
       </view>
 
-      <view v-else-if="!loading" class="empty-state">
-        <view class="empty-mark"><Check :size="25" /></view>
-        <text class="empty-title">回收站是空的</text>
-        <text class="empty-desc">删除的记录会先来到这里，7 天内都可以恢复。</text>
-      </view>
-
-      <view v-if="loading" class="loading-line"><LoaderCircle :size="18" class="spin" /><text>正在查找最近删除的记录</text></view>
+      <StatePanel
+        v-if="loading && !items.length"
+        state="loading"
+        title="正在查找最近删除的记录"
+        description="回收站与各个资料模块正在同步。"
+      />
+      <StatePanel
+        v-else-if="loadError && !items.length"
+        state="error"
+        title="回收站暂时打不开"
+        :description="loadError"
+        action-text="重新加载"
+        secondary-text="返回我的"
+        @action="loadRecycle"
+        @secondary="goBack"
+      />
+      <StatePanel
+        v-else-if="!items.length"
+        state="empty"
+        title="回收站是空的"
+        description="删除的记录会先来到这里，7 天内都可以恢复。"
+        action-text="返回我的"
+        @action="goBack"
+      />
       <view class="bottom-space"></view>
     </scroll-view>
   </view>
@@ -70,9 +104,11 @@
 <script setup>
 import { ref } from "vue";
 import { onLoad, onPullDownRefresh } from "@dcloudio/uni-app";
-import { Check, Clock3, LoaderCircle, RotateCcw } from "@lucide/vue";
+import { Clock3, LoaderCircle, RotateCcw } from "@lucide/vue";
 import ModuleMark from "../../components/ModuleMark.vue";
 import PageHeader from "../../components/PageHeader.vue";
+import StatePanel from "../../components/StatePanel.vue";
+import StatusNotice from "../../components/StatusNotice.vue";
 import { recordTitle } from "../../data/modules";
 import { request } from "../../services/api";
 import { ensureBound } from "../../services/session";
@@ -80,6 +116,8 @@ import { ensureBound } from "../../services/session";
 const items = ref([]);
 const loading = ref(false);
 const restoringId = ref("");
+const loadError = ref("");
+const actionError = ref("");
 
 function moduleCode(module) {
   return { sale: "SALE", lease: "LEASE", work: "WORK", inspiration: "NOTE" }[module] || "ITEM";
@@ -105,11 +143,12 @@ function formatTime(value) {
 async function loadRecycle() {
   if (loading.value) return;
   loading.value = true;
+  loadError.value = "";
   try {
     const result = await request("/recycle");
     items.value = result.items || [];
   } catch (error) {
-    uni.showToast({ title: error.message || "回收站加载失败", icon: "none" });
+    loadError.value = error.message || "回收站加载失败，请检查网络和资料库服务。";
   } finally {
     loading.value = false;
   }
@@ -117,6 +156,7 @@ async function loadRecycle() {
 
 function restore(item) {
   if (!item.record.can_restore || restoringId.value) return;
+  actionError.value = "";
   uni.showModal({
     title: "恢复记录",
     content: `确认把“${titleOf(item)}”恢复到${item.module_name}？`,
@@ -129,7 +169,7 @@ function restore(item) {
         items.value = items.value.filter((entry) => entry.record.record_id !== item.record.record_id);
         uni.showToast({ title: "已经恢复", icon: "success" });
       } catch (error) {
-        uni.showToast({ title: error.message || "恢复失败", icon: "none" });
+        actionError.value = error.message || "恢复失败，请稍后重试。";
       } finally {
         restoringId.value = "";
       }
@@ -146,6 +186,12 @@ onPullDownRefresh(async () => {
   await loadRecycle();
   uni.stopPullDownRefresh();
 });
+
+function goBack() {
+  const pages = getCurrentPages();
+  if (pages.length > 1) uni.navigateBack();
+  else uni.reLaunch({ url: "/pages/profile/index" });
+}
 </script>
 
 <style scoped>
@@ -390,5 +436,50 @@ onPullDownRefresh(async () => {
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Final readability pass. */
+.recycle-hero,
+.recycle-card {
+  border-radius: 8px;
+}
+.hero-kicker,
+.section-kicker {
+  font-size: 10px;
+  letter-spacing: 0;
+}
+.hero-count text:last-child,
+.hero-note,
+.deleted-time,
+.record-summary,
+.expires-line,
+.no-permission {
+  font-size: 11px;
+}
+.module-name,
+.module-code {
+  font-size: 12px;
+}
+.record-summary {
+  line-height: 18px;
+}
+.restore-button {
+  min-width: 76px;
+  font-size: 12px;
+}
+.empty-state,
+.loading-line {
+  display: none;
+}
+@media (max-width: 360px) {
+  .recycle-hero,
+  .list-heading,
+  .recycle-list {
+    margin-left: 12px;
+    margin-right: 12px;
+  }
+  .card-footer {
+    align-items: flex-start;
+  }
 }
 </style>

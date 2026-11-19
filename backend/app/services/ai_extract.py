@@ -224,9 +224,9 @@ def parse_number(text: str) -> tuple[Optional[str], float]:
     return match.group(1), 0.92
 
 
-def parse_date(text: str, field: str = "date") -> tuple[Optional[str], float]:
+def parse_date(text: str, field: str = "date", today: date | None = None) -> tuple[Optional[str], float]:
     """支持 ISO、中文年月日和“今天/明天”等常用录入表达。"""
-    today = date.today()
+    today = today or date.today()
     relative_days = (("大后天", 3), ("后天", 2), ("明天", 1), ("今天", 0), ("今日", 0))
     for token, offset in relative_days:
         if token in text:
@@ -239,7 +239,10 @@ def parse_date(text: str, field: str = "date") -> tuple[Optional[str], float]:
         if offset == 0:
             offset = 7
         return (today.fromordinal(today.toordinal() + offset).isoformat(), 0.9)
-    full = re.search(r"(20\d{2})[年/-](\d{1,2})[月/-](\d{1,2})日?", text)
+    full = re.search(
+        r"(20\d{2})\s*[年/-]\s*(?:的)?\s*(\d{1,2})\s*[月/-]\s*(\d{1,2})\s*(?:日|号)?",
+        text,
+    )
     if full:
         try:
             return date(int(full.group(1)), int(full.group(2)), int(full.group(3))).isoformat(), 0.98

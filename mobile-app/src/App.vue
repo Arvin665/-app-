@@ -1,10 +1,12 @@
 <script>
 import { scheduleDailyReminders } from "./services/reminders";
+import { setupNotificationActions } from "./services/reminders";
 import { checkBinding } from "./services/session";
 import { flushOfflineQueue } from "./services/localDb";
 
 export default {
   onLaunch() {
+    setupNotificationActions();
     // 点击本地通知时按消息载荷直达计划详情或计划列表。
     // #ifdef APP-PLUS
     plus.push.addEventListener("click", (message) => {
@@ -27,7 +29,9 @@ export default {
       })
       .catch(() => uni.reLaunch({ url: "/pages/bind/index" }));
     flushOfflineQueue().catch(() => {});
-    scheduleDailyReminders();
+    scheduleDailyReminders().catch((error) => {
+      console.warn("每日提醒初始化失败", error);
+    });
   },
   onShow(options) {
     const module = options?.query?.module;
@@ -136,7 +140,12 @@ page {
   --accent-soft: #dff2ed;
   --warning: #c86428;
   --warning-bg: #fbeee3;
+  --success: #0b7565;
+  --success-bg: #e8f7f2;
+  --info: #416f89;
+  --info-bg: #f2f8fb;
   --danger: #b64c46;
+  --danger-bg: #fff4f1;
   --border: #dce5e1;
   --soft: #eef2f0;
   --sale: #b85639;
@@ -266,6 +275,26 @@ picker {
   -webkit-line-clamp: 2;
 }
 
+.break-words {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.tap-target {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.surface-note {
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
 @keyframes voice-wave {
   0%, 100% { transform: scaleY(0.45); }
   50% { transform: scaleY(1); }
@@ -275,5 +304,15 @@ picker {
   0% { box-shadow: 0 0 0 0 rgba(108, 231, 206, 0.32); }
   70% { box-shadow: 0 0 0 14px rgba(108, 231, 206, 0); }
   100% { box-shadow: 0 0 0 0 rgba(108, 231, 206, 0); }
+}
+
+uni-scroll-view .uni-scroll-view {
+  scrollbar-width: none;
+}
+
+uni-scroll-view .uni-scroll-view::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 </style>

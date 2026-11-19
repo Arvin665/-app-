@@ -8,6 +8,8 @@
 
     <scroll-view class="detail-scroll" scroll-y>
       <view v-if="material" class="detail-content">
+        <StatusNotice v-if="actionError" tone="error" title="这次操作没有完成" :message="actionError" closeable @close="actionError = ''" />
+        <StatusNotice v-if="linkedRecordError" tone="warning" title="关联记录暂未加载" :message="linkedRecordError" compact />
         <view class="file-hero" :class="`type-${material.file_type}`">
           <view class="hero-backdrop"></view>
           <view class="file-mark"><component :is="fileIcon" :size="31" :stroke-width="1.7" /></view>
@@ -109,10 +111,17 @@
         <view class="page-space"></view>
       </view>
 
-      <view v-else class="loading-page">
-        <LoaderCircle v-if="loading" :size="25" class="spin" />
-        <text>{{ loading ? "正在读取资料" : "资料不存在或没有访问权限" }}</text>
-      </view>
+      <StatePanel v-else-if="loading" state="loading" title="正在读取资料" description="正在读取原件信息、正文提取状态和关联记录。" />
+      <StatePanel
+        v-else
+        state="error"
+        title="资料暂时没有加载出来"
+        :description="loadError || '资料可能已经删除，或者当前设备没有访问权限。'"
+        action-text="重新加载"
+        secondary-text="返回资料库"
+        @action="loadMaterial"
+        @secondary="backToMaterials"
+      />
     </scroll-view>
   </view>
 </template>
@@ -131,12 +140,13 @@ import {
   FileText,
   FileVideo,
   Link2,
-  LoaderCircle,
   Presentation,
   ScanText,
   Trash2,
 } from "@lucide/vue";
 import PageHeader from "../../components/PageHeader.vue";
+import StatePanel from "../../components/StatePanel.vue";
+import StatusNotice from "../../components/StatusNotice.vue";
 import { modules, recordTitle } from "../../data/modules";
 import { request } from "../../services/api";
 import {
@@ -153,6 +163,9 @@ const materialId = ref("");
 const material = ref(null);
 const linkedRecord = ref(null);
 const loading = ref(true);
+const loadError = ref("");
+const actionError = ref("");
+const linkedRecordError = ref("");
 
 const icons = {
   image: FileImage,
@@ -205,8 +218,17 @@ function formatDate(value) {
   return String(value || "").replace("T", " ").slice(0, 16);
 }
 
-function openOriginal() {
-  openMaterial(material.value, { openExternally: true });
+async function openOriginal() {
+  actionError.value = "";
+  if (!material.value?.file_url) {
+    actionError.value = "这份资料没有可打开的原件地址，请稍后重新上传。";
+    return;
+  }
+  try {
+    await openMaterial(material.value, { openExternally: true });
+  } catch (error) {
+    actionError.value = error.message || "原件暂时无法打开，请检查网络后重试。";
+  }
 }
 
 function openLinkedRecord() {
@@ -220,10 +242,12 @@ function copyText() {
   uni.setClipboardData({
     data: extractedText.value,
     success: () => uni.showToast({ title: "正文已复制", icon: "success" }),
+    fail: () => { actionError.value = "正文没有复制成功，请重试。"; },
   });
 }
 
 function removeMaterial() {
+  actionError.value = "";
   if (!material.value?.material_id) return;
   uni.showModal({
     title: "删除资料",
@@ -236,7 +260,7 @@ function removeMaterial() {
         uni.showToast({ title: "资料已删除", icon: "success" });
         setTimeout(() => uni.navigateBack(), 400);
       } catch (error) {
-        uni.showToast({ title: error.message || "删除失败", icon: "none" });
+        actionError.value = error.message || "删除失败，请检查网络后重试。";
       }
     },
   });
@@ -244,6 +268,9 @@ function removeMaterial() {
 
 async function loadMaterial() {
   loading.value = true;
+  loadError.value = "";
+  actionError.value = "";
+  linkedRecordError.value = "";
   try {
     material.value = await getMaterial(materialId.value);
     if (material.value.record_id && modules[material.value.module]) {
@@ -251,14 +278,19 @@ async function loadMaterial() {
         linkedRecord.value = await request(`/${modules[material.value.module].endpoint}/${material.value.record_id}`);
       } catch (error) {
         linkedRecord.value = null;
+        linkedRecordError.value = "原件已经加载，但关联记录标题暂时没有同步。你仍可以打开原件或返回资料库。";
       }
     }
   } catch (error) {
     material.value = null;
-    uni.showToast({ title: error.message || "资料加载失败", icon: "none" });
+    loadError.value = error.message || "资料加载失败，请检查网络和资料库服务。";
   } finally {
     loading.value = false;
   }
+}
+
+function backToMaterials() {
+  uni.navigateBack({ fail: () => uni.reLaunch({ url: "/pages/materials/index" }) });
 }
 
 onLoad((options) => {
@@ -269,6 +301,10 @@ onLoad((options) => {
 </script>
 
 <style scoped>
+.detail-content :deep(.status-notice) {
+  margin-left: 0;
+  margin-right: 0;
+}
 .material-page {
   height: 100vh;
   overflow: hidden;

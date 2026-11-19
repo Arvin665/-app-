@@ -152,7 +152,7 @@ export function localDateTime(now = new Date()) {
 export function initialFields(moduleKey) {
   const fields = {};
   modules[moduleKey].fields.forEach((field) => {
-    if (Object.prototype.hasOwnProperty.call(field, "default")) fields[field.key] = field.default;
+    fields[field.key] = Object.prototype.hasOwnProperty.call(field, "default") ? field.default : null;
   });
   if (moduleKey === "sale") Object.assign(fields, { deal_date: localDate(), deal_status: "信息待补充" });
   if (moduleKey === "lease") Object.assign(fields, { start_date: localDate(), lease_type: "新租" });

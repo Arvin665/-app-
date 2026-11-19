@@ -64,6 +64,9 @@ def bind_device(body: BindRequest, db: DbSession):
         status=1,
     )
     invite.used_count += 1
+    if invite.invite_code == settings.bootstrap_invite_code and invite.role_level == 1:
+        # 首个管理员绑定后立即关闭初始邀请码，避免它继续签发管理员身份。
+        invite.status = 0
     db.add(device)
     db.commit()
     db.refresh(device)

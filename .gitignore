@@ -8,6 +8,15 @@ venv/
 backend/uploads/
 backend/tests/test_artifacts/
 backend/models/
+mobile-app/android/keystore.properties
+mobile-app/android/*.jks
+mobile-app/android/*.keystore
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+*.cer
+AuthKey_*.p8
 
 # Node
 node_modules/

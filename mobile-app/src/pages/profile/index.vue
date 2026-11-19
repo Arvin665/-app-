@@ -17,6 +17,15 @@
       <view class="identity-status"><view class="status-dot"></view><text>已绑定</text></view>
     </view>
 
+    <StatusNotice
+      v-if="statsError"
+      tone="warning"
+      title="统计数据暂未同步"
+      :message="statsError"
+      action-text="重新同步"
+      @action="loadProfile"
+    />
+
     <view class="stats-strip">
       <view class="stat-item">
         <text class="stat-value">{{ stats.records }}</text>
@@ -48,6 +57,11 @@
         <view class="menu-row pressable" @tap="go('/pages/plans/index')">
           <view class="menu-icon tone-amber"><CalendarCheck2 :size="19" /></view>
           <view class="menu-copy"><text class="menu-title">计划与复盘</text><text class="menu-note">今天的待办和每日回看</text></view>
+          <ChevronRight :size="16" class="menu-arrow" />
+        </view>
+        <view class="menu-row pressable" @tap="go('/pages/reminders/index')">
+          <view class="menu-icon tone-green"><BellRing :size="19" /></view>
+          <view class="menu-copy"><text class="menu-title">提醒服务</text><text class="menu-note">{{ reminderMenuNote }}</text></view>
           <ChevronRight :size="16" class="menu-arrow" />
         </view>
       </view>
@@ -83,6 +97,7 @@ import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
 import {
   Archive,
+  BellRing,
   Boxes,
   CalendarCheck2,
   ChevronRight,
@@ -92,18 +107,31 @@ import {
   RotateCcw,
 } from "@lucide/vue";
 import AppTabBar from "../../components/AppTabBar.vue";
+import StatusNotice from "../../components/StatusNotice.vue";
 import { moduleList } from "../../data/modules";
 import { request } from "../../services/api";
 import { listMaterials } from "../../services/material";
 import { listOfflineQueue } from "../../services/localDb";
 import { ensureBound, getSession } from "../../services/session";
+import { hasBackgroundReminderSupport, notificationPermission } from "../../services/reminders";
 
 const session = ref(getSession());
-const stats = ref({ records: 0, materials: 0 });
-const pendingCount = ref(0);
+const stats = ref({ records: "—", materials: "—" });
+const pendingCount = ref("—");
+const statsError = ref("");
+const statsLoading = ref(false);
+const reminderPermission = ref("checking");
 const deviceLabel = computed(() => {
   const value = session.value?.device_name || "当前设备";
   return String(value).slice(0, 34);
+});
+const reminderMenuNote = computed(() => {
+  if (reminderPermission.value === "granted") {
+    return hasBackgroundReminderSupport() ? "后台提醒已开启 · 到点通知" : "网页提醒已开启 · 保持页面打开";
+  }
+  if (reminderPermission.value === "denied") return "通知权限已关闭 · 点击查看设置";
+  if (reminderPermission.value === "unsupported") return "当前环境不支持系统通知";
+  return "通知权限、到点提醒和后台状态";
 });
 
 function go(url) {
@@ -112,22 +140,42 @@ function go(url) {
 
 async function loadProfile() {
   if (!ensureBound()) return;
+  if (statsLoading.value) return;
   session.value = getSession();
-  try {
-    const [recordResults, materialResult, queue] = await Promise.all([
-      Promise.all(moduleList.map((module) => request(`/${module.endpoint}?page_size=1`))),
-      listMaterials({ pageSize: 1 }),
-      listOfflineQueue(),
-    ]);
-    stats.value.records = recordResults.reduce((sum, result) => sum + Number(result.total || 0), 0);
-    stats.value.materials = Number(materialResult.total || 0);
-    pendingCount.value = queue.length;
-  } catch (error) {
-    // 断网时仍显示本页，不把缓存中的身份和使用入口隐藏。
+  statsLoading.value = true;
+  statsError.value = "";
+  const results = await Promise.allSettled([
+    ...moduleList.map((module) => request(`/${module.endpoint}?page_size=1`)),
+    listMaterials({ pageSize: 1 }),
+    listOfflineQueue(),
+  ]);
+  const moduleResults = results.slice(0, moduleList.length);
+  const materialResult = results[moduleList.length];
+  const queueResult = results[moduleList.length + 1];
+  if (moduleResults.every((result) => result.status === "fulfilled")) {
+    stats.value.records = moduleResults.reduce((sum, result) => sum + Number(result.value.total || 0), 0);
+  } else {
+    stats.value.records = "—";
   }
+  stats.value.materials = materialResult.status === "fulfilled"
+    ? Number(materialResult.value.total || 0)
+    : "—";
+  pendingCount.value = queueResult.status === "fulfilled" ? queueResult.value.length : "—";
+  const failure = results.find((result) => result.status === "rejected");
+  if (failure) {
+    statsError.value = failure.reason?.message || "部分统计没有连上资料库服务。";
+  }
+  statsLoading.value = false;
 }
 
-onShow(loadProfile);
+async function loadReminderStatus() {
+  reminderPermission.value = await notificationPermission().catch(() => "unknown");
+}
+
+onShow(() => {
+  loadProfile();
+  loadReminderStatus();
+});
 </script>
 
 <style scoped>
@@ -347,5 +395,48 @@ onShow(loadProfile);
   border-radius: 50%;
   background: var(--surface-soft);
   color: var(--accent);
+}
+
+/* Final readability pass. */
+.brand-name {
+  font-size: 10px;
+  letter-spacing: 0;
+}
+.page-subtitle,
+.identity-device,
+.identity-status,
+.stat-label,
+.group-label,
+.menu-note,
+.profile-footer {
+  font-size: 11px;
+}
+.group-label {
+  letter-spacing: 0;
+}
+.menu-card,
+.identity-card {
+  border-radius: 8px;
+}
+.menu-title {
+  font-size: 14px;
+}
+.profile-page :deep(.status-notice) {
+  margin-left: 0;
+  margin-right: 0;
+}
+@media (max-width: 360px) {
+  .profile-page {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .identity-card {
+    gap: 9px;
+    padding: 13px;
+  }
+  .identity-avatar {
+    width: 45px;
+    height: 45px;
+  }
 }
 </style>

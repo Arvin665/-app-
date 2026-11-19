@@ -203,34 +203,50 @@ export function deleteMaterial(materialId) {
 }
 
 export function openMaterial(material, { openExternally = false } = {}) {
-  if (!material?.file_url) return;
+  if (!material?.file_url) {
+    return Promise.reject(new Error("这份资料没有可打开的原件地址。"));
+  }
   if (material.file_type === "image" && !openExternally) {
-    uni.previewImage({ urls: [material.file_url], current: material.file_url });
-    return;
+    return new Promise((resolve, reject) => {
+      uni.previewImage({
+        urls: [material.file_url],
+        current: material.file_url,
+        success: () => resolve(true),
+        fail: () => reject(new Error("图片预览没有打开，请重试。")),
+      });
+    });
   }
 
   // #ifdef H5
-  window.open(material.file_url, "_blank", "noopener,noreferrer");
-  return;
+  try {
+    const opened = window.open(material.file_url, "_blank", "noopener,noreferrer");
+    if (!opened) throw new Error("浏览器拦截了新页面，请允许打开原件后重试。");
+    return Promise.resolve(true);
+  } catch (error) {
+    return Promise.reject(error instanceof Error ? error : new Error("原件暂时无法打开。"));
+  }
   // #endif
 
   uni.showLoading({ title: "正在准备文件" });
-  uni.downloadFile({
-    url: material.file_url,
-    header: { "X-Device-ID": getDeviceId() },
-    success: (result) => {
-      if (result.statusCode !== 200) {
-        uni.showToast({ title: "文件下载失败", icon: "none" });
-        return;
-      }
-      uni.openDocument({
-        filePath: result.tempFilePath,
-        showMenu: true,
-        fail: () => uni.showToast({ title: "当前格式无法直接预览，请用系统应用打开", icon: "none" }),
-      });
-    },
-    fail: () => uni.showToast({ title: "文件下载失败", icon: "none" }),
-    complete: () => uni.hideLoading(),
+  return new Promise((resolve, reject) => {
+    uni.downloadFile({
+      url: material.file_url,
+      header: { "X-Device-ID": getDeviceId() },
+      success: (result) => {
+        if (result.statusCode !== 200) {
+          reject(new Error(`原件下载失败（${result.statusCode}）。`));
+          return;
+        }
+        uni.openDocument({
+          filePath: result.tempFilePath,
+          showMenu: true,
+          success: () => resolve(true),
+          fail: () => reject(new Error("当前格式无法直接预览，请用系统应用打开。")),
+        });
+      },
+      fail: () => reject(new Error("原件下载失败，请检查网络后重试。")),
+      complete: () => uni.hideLoading(),
+    });
   });
 }
 

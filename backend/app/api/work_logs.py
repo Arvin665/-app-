@@ -14,6 +14,7 @@ from app.schemas.work import (
     PlanStatusRequest,
     WorkLogCreate,
     WorkLogUpdate,
+    WorkLogBatchCreate,
 )
 from app.services.query_utils import apply_period_filter
 from app.services.record_utils import (
@@ -120,6 +121,54 @@ def list_daily_plans(
         "items": [serialize_record(record, device) for record in records],
         "include_archived": include_archived,
     }
+
+
+@router.post("/batch", status_code=201)
+def create_work_logs_batch(
+    body: WorkLogBatchCreate,
+    db: DbSession,
+    device: CurrentDevice,
+    request: Request,
+):
+    """原子创建一批待办计划；任何一条失败时整批回滚。"""
+    if any(item.record_type != "待办计划" for item in body.items):
+        raise HTTPException(status_code=422, detail="批量创建只接受待办计划")
+
+    target_dates = sorted({item.record_date for item in body.items})
+    for target_date in target_dates:
+        if review_exists(db, device.device_id, target_date):
+            raise HTTPException(
+                status_code=409,
+                detail=f"{target_date.isoformat()} 的计划已归档锁定，不能继续新增",
+            )
+
+    records: list[WorkLog] = []
+    for item in body.items:
+        payload = item.model_dump()
+        if payload.get("ext_field_5") is None:
+            payload["ext_field_5"] = 0
+        record = WorkLog(record_id=new_id(), creator_id=device.device_id, data_status=1)
+        apply_payload(record, payload)
+        db.add(record)
+        records.append(record)
+        log_operation(
+            db,
+            device.device_id,
+            "add",
+            "work",
+            record.record_id,
+            {"record_type": record.record_type, "record_date": str(record.record_date), "batch": True},
+            request.client.host if request.client else None,
+        )
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    for record in records:
+        db.refresh(record)
+    return {"items": [serialize_record(record, device) for record in records], "count": len(records)}
 
 
 @router.get("/{record_id}")

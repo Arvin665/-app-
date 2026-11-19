@@ -6,6 +6,14 @@
 - 本地管理员邀请码：`246810`（仅本地开发默认值，生产必须更换）
 - 移动端登录页不再自动聚焦邀请码输入框，避免小屏键盘遮住底部按钮。
 
+## 部署与发布教程
+
+- [云服务器与数据备份部署](docs/云端部署教程.md)
+- [Android 内测与正式发布](docs/安卓发布教程.md)
+- [iPhone 内测与 App Store 发布](docs/苹果发布教程.md)
+
+当前本地代码如果有未提交改动，必须先上传到 GitHub，云服务器执行 `git clone/git pull` 才会拿到最新版本。不要只把代码留在 Windows 工作区。
+
 ## 已接入的语音链路
 
 ```text
@@ -127,8 +135,22 @@ docker compose ps
 | `VOSK_MODEL_PATH` | Vosk 备用模型目录 |
 | `AI_PROVIDER` | `auto`、`local` 或 `deepseek` |
 | `DEEPSEEK_API_KEY` | DeepSeek API Key，留空则只用本地规则 |
-| `DEEPSEEK_BASE_URL` | 默认 `https://api.deepseek.com/v1` |
-| `DEEPSEEK_MODEL` | 默认 `deepseek-chat` |
+| `DEEPSEEK_BASE_URL` | 默认 `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | 默认 `deepseek-chat`；模型标识可能调整，以 DeepSeek 官方控制台当前列表为准 |
+
+在项目根目录新建 `.env`（不是 `.env.local`），DeepSeek 部分按下面原样填写，只需把 Key 换成真实值：
+
+```dotenv
+AI_PROVIDER=auto
+DEEPSEEK_API_KEY=sk-你的真实Key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-chat
+DEEPSEEK_TIMEOUT_SECONDS=90
+```
+
+配置文件里不要写反斜杠 `\`，不要写 Markdown。后端会自动请求 `https://api.deepseek.com/chat/completions`，该业务默认使用 JSON 输出；修改 `.env` 后必须重启后端。不要假定某个模型名永久是“最新版本”，请以 DeepSeek 官方控制台当前可用模型列表为准；模型名写错时会自动降级到本地规则。
+
+录入页显示“DeepSeek 智能整理”表示本次调用成功；显示“本地智能整理”表示已自动降级，并在说明中给出网络、Key 或模型失败原因。
 
 DeepSeek 接入属于外部网络调用。生产环境应确认团队对资料外发的授权、脱敏策略和供应商数据处理条款；不应把 API Key 写入前端或提交到 Git。
 
@@ -141,6 +163,25 @@ DeepSeek 接入属于外部网络调用。生产环境应确认团队对资料�
 - 没有适配器的格式仍按原格式保存，不会因为识别失败而丢文件。
 - 交易记录中的语音原话会进入备注，结构化字段只写入能从内容中确认的信息。所有自动整理结果都需要人工核对。
 
+## 数据存放与跨模块联动
+
+- 业务记录、设备身份、邀请码、操作日志和跨模块关联存放在 MySQL；生产使用持久化 Docker Volume，普通重启和 `docker compose down` 不会删除数据。
+- 用户上传的任意格式原件、缩略图和音视频统一存放在 `uploads_data` Volume；数据库只保存元数据和内部地址，不把大文件塞进 MySQL。
+- 四个业务模块沿用各自的结构化字段；原始文字、原话和文件识别正文作为可追溯材料保留。项目买卖允许空字段保存线索，不强制补全。
+- `sys_record_link` 是用户确认后的显式关联表。系统可依据同类楼宇或项目名给出候选，但不会按名称自动合并，避免把同名项目错连。
+- 详情上下文接口会同时返回当前记录、资料、早期附件、已确认关联和“可能相关”建议，移动端可从一条记录跳转到另一条。
+- 后台文件不再公开挂在 `/uploads/`，统一通过带有效期的 `/api/v1/files/...` 签名地址读取；关联、搜索和候选建议均执行现有成员权限。
+- 管理端导出备份包含 `sys_record_link`，但仍遵守工作记录和个人灵感的隔离规则。生产备份脚本位于 `scripts/backup.sh`（Linux）和 `scripts/backup.ps1`（Windows）。
+
+## 计划与提醒闭环
+
+- 一段连续口述会先由 DeepSeek/本地规则拆成多条计划候选，不直接写入数据库。
+- 核对页可逐条修改正文、日期、时间和关联项目，也可删除、补一条或取消勾选。
+- 点击“确认创建并提醒”后，所有勾选计划通过一次事务批量保存；任一条校验失败会整批回滚。
+- Android/iOS 原生端使用 Capacitor Local Notifications 调度后台提醒；H5 只能保证页面打开期间的前台提醒。
+- 没有明确执行时刻的计划保留为“全天”，后台按当天 08:30 提醒，但不会把 08:30 写成计划执行时间。
+- 已完成或搁置的计划会取消对应提醒；计划列表重新加载时会重新同步定时任务。
+
 ## 验收
 
 已在当前 Windows 环境执行：
@@ -150,30 +191,33 @@ Set-Location .\backend
 & '..\.venv\Scripts\python.exe' -m pytest tests -q
 Set-Location .\mobile-app
 npm.cmd run build:h5
-npm.cmd run build:app
+npm.cmd run native:sync:android:debug
 ```
 
 当前结果：
 
-- 后端测试：`11 passed`，覆盖 API、权限、资料保存、媒体转录、SenseVoice/Vosk 降级、DeepSeek 成功落地和故障回退。
-- H5 构建和 App 资源构建：通过。
+- 后端测试：`20 passed`，覆盖批量计划原子保存、归档锁定、相对日期纠错、多任务拆分、跨模块关联与搜索、签名文件、备份版本和旧库初始邀请码停用。
+- H5 构建通过；Capacitor Android 资源同步通过，已注册 `@capacitor/local-notifications`。
+- 真实 DeepSeek 实测：用户示例拆为 4 条计划，日期均为 `2026-11-18`；仅首条带 `10:30`，其余保持未指定时刻。
 - SenseVoiceSmall 真实中文样例：本机 `zh.wav` 成功转写为“开饭时间早上9点至下午5点。”，端点返回 `provider=sensevoice`。
 - 麦克风权限、系统文件选择器和手机真机语音必须在有界面的设备上人工验收；无头环境不能代替真实录音验收。
 
 当前机器与 CI 状态：
 
-- Docker Compose、MySQL 8、Redis 7、Nginx、OCR/ASR、附件写入和重启后数据保留：已在 [GitHub Actions 联调任务](https://github.com/Arvin665/-app-/actions/runs/44042488671) 全部通过。当前本机没有 Docker CLI，无法在本地重复这项验证。
+- 历史 GitHub Actions 曾通过 [Docker/MySQL/Redis 联调](https://github.com/Arvin665/-app-/actions/runs/44042488671)；本轮新增跨模块关联表、签名文件访问和 CORS 调整后，当前机器仍没有 Docker CLI，尚未重新做全栈容器联调，不能把旧结果当成本轮已验证。
 - Android Debug APK：已在 [GitHub Actions Android 构建](https://github.com/Arvin665/-app-/actions/runs/44048218168) 通过；artifact `asset-library-android-debug` 内的 `app-debug.apk` 为 4,384,323 字节。这是调试包，不是正式签名发布包。
 - iOS 模拟器包：已在 [GitHub Actions iOS 构建](https://github.com/Arvin665/-app-/actions/runs/44047326183) 通过；产物是未签名模拟器构建，不是 IPA，也没有上架。
 - 当前机器没有 Docker CLI、Java、Android SDK 或 Xcode；本机无法重复 Android/iOS 原生构建。
 - 尚未完成真机麦克风、系统文件选择器、Android/iOS 安装和后台提醒验收。
-- 尚未配置真实 DeepSeek Key，因此真实线上纠错准确率、限额和异常网络重试仍需验收。
+- 真实 DeepSeek Key 当前已配置，并已完成一次真实接口实测；额度、网络异常和长期稳定性仍需持续观察。
+- `uni build -p app` 旧导出链路仍会遇到 IIFE 与代码分块不兼容；当前 Capacitor 原生包以 H5 构建同步为准，不把该命令视为已通过。
 - 尚未生成正式签名的 APK/IPA，也未完成应用商店发布。
 
 ## 生产上线前
 
 1. 更换管理员邀请码、数据库密码和 `SENSITIVE_FIELD_KEY`，不要沿用示例值。
 2. 配置 HTTPS、真实域名和 CORS 白名单；移动浏览器录音必须使用 HTTPS。
+   Android 原生容器需要 `https://localhost`，iOS 原生容器需要 `capacitor://localhost`；两者都要和正式域名一起写入 `CORS_ORIGINS`。
 3. 按团队数据处理要求决定是否启用 DeepSeek，并对客户姓名、电话、交易文件做必要脱敏。
 4. 执行一次 MySQL/附件备份恢复演练，确认原件和正文都能恢复。
 5. 用真实 Android/iOS 设备验收麦克风权限、停止录音、任意文件导入、离线同步和后台提醒。

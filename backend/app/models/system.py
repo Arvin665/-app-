@@ -97,6 +97,30 @@ class Attachment(Base):
     data_status: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1, server_default="1")
 
 
+class RecordLink(Base):
+    """各业务模块之间的显式关联；只在用户确认后写入。"""
+
+    __tablename__ = "sys_record_link"
+    __table_args__ = MYSQL_OPTIONS
+
+    link_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    pair_key: Mapped[str] = mapped_column(String(96), nullable=False, unique=True, index=True)
+    source_module: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    source_record_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    target_module: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    target_record_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    relation_type: Mapped[str] = mapped_column(String(20), nullable=False, default="related", server_default="related")
+    note: Mapped[Optional[str]] = mapped_column(String(255))
+    creator_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    create_time: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now, server_default=func.now()
+    )
+    update_time: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now, server_default=func.now(), onupdate=datetime.now
+    )
+    data_status: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1, server_default="1")
+
+
 class Material(Base):
     """独立资料资产；可先归档，再关联具体业务记录。"""
 

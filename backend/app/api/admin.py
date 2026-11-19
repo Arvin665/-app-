@@ -22,6 +22,7 @@ from app.models import (
     OperationLog,
     PersonalInspiration,
     PropertySale,
+    RecordLink,
     TenancyLease,
     WorkLog,
 )
@@ -275,6 +276,7 @@ BACKUP_MODELS = {
     "biz_personal_inspiration": PersonalInspiration,
     "sys_attachment": Attachment,
     "sys_material": Material,
+    "sys_record_link": RecordLink,
 }
 
 
@@ -328,6 +330,26 @@ def backup_rows_for(db: DbSession, model, device: Device) -> list:
                 .order_by(Material.upload_time.desc())
             ).all()
         )
+    if model is RecordLink:
+        visible_ids: dict[str, set[str]] = {
+            "sale": {row.record_id for row in backup_rows_for(db, PropertySale, device)},
+            "lease": {row.record_id for row in backup_rows_for(db, TenancyLease, device)},
+            "work": {row.record_id for row in backup_rows_for(db, WorkLog, device)},
+            "inspiration": {
+                row.record_id for row in backup_rows_for(db, PersonalInspiration, device)
+            },
+        }
+        links = db.scalars(
+            select(RecordLink)
+            .where(RecordLink.data_status == 1)
+            .order_by(RecordLink.create_time.desc())
+        ).all()
+        return [
+            row
+            for row in links
+            if row.source_record_id in visible_ids.get(row.source_module, set())
+            and row.target_record_id in visible_ids.get(row.target_module, set())
+        ]
     return list(db.scalars(select(model)).all())
 
 
@@ -367,7 +389,7 @@ def download_full_backup(db: DbSession, device: AdminDevice, request: Request):
     ]
     tables["sys_invite_code"] = [serialize_invite(item) for item in db.scalars(select(InviteCode)).all()]
     payload = {
-        "version": 2,
+        "version": 3,
         "exported_at": datetime.now().isoformat(),
         "database": "mall_office_asset",
         "tables": tables,

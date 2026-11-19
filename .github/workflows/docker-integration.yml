@@ -37,6 +37,8 @@ jobs:
           sed -i 's#^SENSITIVE_FIELD_KEY=.*#SENSITIVE_FIELD_KEY=ci-sensitive-field-key-32-characters#' .env
           sed -i 's#^BOOTSTRAP_INVITE_CODE=.*#BOOTSTRAP_INVITE_CODE=246810#' .env
           sed -i 's#^PUBLIC_BASE_URL=.*#PUBLIC_BASE_URL=http://web#' .env
+          sed -i 's#^WEB_BIND=.*#WEB_BIND=0.0.0.0#' .env
+          sed -i 's#^WEB_PORT=.*#WEB_PORT=80#' .env
 
       - name: Validate Compose configuration
         run: docker compose config

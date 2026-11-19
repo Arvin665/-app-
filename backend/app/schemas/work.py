@@ -50,6 +50,10 @@ class WorkLogUpdate(BaseModel):
     is_shared: Optional[int] = Field(default=None, ge=0, le=1)
 
 
+class WorkLogBatchCreate(BaseModel):
+    items: list[WorkLogCreate] = Field(min_length=1, max_length=20)
+
+
 class PlanStatusRequest(BaseModel):
     status: int = Field(ge=0, le=3)
     note: Optional[str] = None

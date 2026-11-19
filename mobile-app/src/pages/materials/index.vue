@@ -58,6 +58,23 @@
       </view>
     </view>
 
+    <StatusNotice
+      v-if="loadError && materials.length"
+      tone="warning"
+      title="资料列表没有完全同步"
+      :message="loadError"
+      action-text="重新加载"
+      @action="loadMaterials(true)"
+    />
+    <StatusNotice
+      v-if="actionError"
+      tone="error"
+      title="这次资料操作没有完成"
+      :message="actionError"
+      closeable
+      @close="actionError = ''"
+    />
+
     <scroll-view class="material-scroll" scroll-y @scrolltolower="loadMore">
       <view v-if="materials.length" class="material-list">
         <MaterialRow
@@ -69,21 +86,32 @@
         />
       </view>
 
-      <view v-else-if="!loading" class="empty-library">
+      <StatePanel
+        v-else-if="loading"
+        state="loading"
+        title="正在整理资料库"
+        description="正在读取原件、缩略图和可检索正文。"
+      />
+      <StatePanel
+        v-else-if="loadError"
+        state="error"
+        title="资料库暂时没有连上"
+        :description="loadError"
+        action-text="重新加载"
+        :secondary-text="hasActiveFilters ? '清除筛选' : ''"
+        @action="loadMaterials(true)"
+        @secondary="clearAllFilters"
+      />
+      <view v-else class="empty-library">
         <view class="empty-illustration">
           <Archive :size="31" :stroke-width="1.5" />
           <view class="empty-plus"><Plus :size="13" /></view>
         </view>
-        <text class="empty-title">{{ keyword ? "没有找到对应资料" : "资料库还是空的" }}</text>
-        <text class="empty-desc">{{ keyword ? "换个说法，或清除筛选再找一次。" : "图片、PDF、表格、文档、音视频，先放进来就能随时翻看。" }}</text>
-        <view class="empty-action pressable" @tap="keyword ? clearSearch() : startUpload()">
-          {{ keyword ? "清除搜索" : "添加第一份资料" }}
+        <text class="empty-title">{{ hasActiveFilters ? "没有找到对应资料" : "资料库还是空的" }}</text>
+        <text class="empty-desc">{{ hasActiveFilters ? "换个说法，或清除模块和格式筛选再找一次。" : "图片、PDF、表格、文档、音视频，先放进来就能随时翻看。" }}</text>
+        <view class="empty-action pressable" @tap="hasActiveFilters ? clearAllFilters() : startUpload()">
+          {{ hasActiveFilters ? "清除筛选" : "添加第一份资料" }}
         </view>
-      </view>
-
-      <view v-else class="loading-state">
-        <LoaderCircle :size="22" class="spin" />
-        <text>正在读取资料</text>
       </view>
 
       <view v-if="materials.length && loadingMore" class="load-more"><LoaderCircle :size="16" class="spin" /><text>继续加载</text></view>
@@ -110,6 +138,8 @@ import {
 } from "@lucide/vue";
 import AppTabBar from "../../components/AppTabBar.vue";
 import MaterialRow from "../../components/MaterialRow.vue";
+import StatePanel from "../../components/StatePanel.vue";
+import StatusNotice from "../../components/StatusNotice.vue";
 import { moduleList } from "../../data/modules";
 import { dictationAvailable, startDictation } from "../../services/voice";
 import {
@@ -132,6 +162,8 @@ const loading = ref(false);
 const loadingMore = ref(false);
 const uploading = ref(false);
 const listening = ref(false);
+const loadError = ref("");
+const actionError = ref("");
 const voicePhase = ref("idle");
 const voiceInterim = ref("");
 let searchTimer = null;
@@ -145,6 +177,7 @@ const activeModuleLabel = computed(() => {
   if (moduleFilter.value === "all") return "TEAM ARCHIVE";
   return moduleList.find((item) => item.key === moduleFilter.value)?.visual.kicker || "MODULE ARCHIVE";
 });
+const hasActiveFilters = computed(() => Boolean(keyword.value.trim() || moduleFilter.value !== "all" || fileType.value));
 
 function typeLabel(value) {
   return materialTypeLabels[value] || "其他格式";
@@ -157,6 +190,13 @@ function queueSearch() {
 
 function clearSearch() {
   keyword.value = "";
+  loadMaterials(true);
+}
+
+function clearAllFilters() {
+  keyword.value = "";
+  moduleFilter.value = "all";
+  fileType.value = "";
   loadMaterials(true);
 }
 
@@ -181,6 +221,8 @@ async function loadMaterials(reset = false) {
   if (reset) {
     page.value = 1;
     loading.value = true;
+    total.value = 0;
+    loadError.value = "";
   } else {
     loadingMore.value = true;
   }
@@ -195,9 +237,10 @@ async function loadMaterials(reset = false) {
     const incoming = response.items || [];
     materials.value = reset ? incoming : [...materials.value, ...incoming];
     total.value = Number(response.total || 0);
+    loadError.value = "";
   } catch (error) {
     if (reset) materials.value = [];
-    uni.showToast({ title: error.message || "资料加载失败", icon: "none" });
+    loadError.value = error.message || "资料加载失败，请检查网络和资料库服务。";
   } finally {
     loading.value = false;
     loadingMore.value = false;
@@ -283,6 +326,7 @@ function startUpload() {
       const module = await chooseModuleForUpload();
       if (!module) return;
       try {
+        actionError.value = "";
         let files = [];
         if (result.tapIndex === 0) files = await chooseImages({ count: 3, sourceType: ["camera"] });
         else if (result.tapIndex === 1) files = await chooseImages({ count: 9, sourceType: ["album"] });
@@ -296,7 +340,7 @@ function startUpload() {
         uni.showToast({ title: `已收好 ${files.length} 份资料`, icon: "success" });
         await loadMaterials(true);
       } catch (error) {
-        uni.showToast({ title: error.message || error.errMsg || "资料上传失败", icon: "none", duration: 2600 });
+        actionError.value = error.message || error.errMsg || "资料上传失败，请检查文件后重试。";
       } finally {
         uploading.value = false;
       }
@@ -310,7 +354,7 @@ onLoad((options) => {
 });
 
 onShow(() => {
-  if (ensureBound() && materials.value.length) loadMaterials(true);
+  if (ensureBound()) loadMaterials(true);
 });
 
 onPullDownRefresh(async () => {
@@ -612,5 +656,53 @@ onUnload(() => {
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Final mobile readability pass. */
+.brand-name {
+  font-size: 10px;
+  letter-spacing: 0;
+}
+.page-subtitle,
+.voice-search-line,
+.filter-chip,
+.upload-inline,
+.empty-desc,
+.load-more,
+.list-end {
+  font-size: 11px;
+}
+.summary-kicker {
+  font-size: 10px;
+  letter-spacing: 0;
+}
+.summary-text {
+  font-size: 13px;
+}
+.empty-desc {
+  line-height: 19px;
+}
+.material-list :deep(.material-row) {
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+.materials-page :deep(.status-notice) {
+  margin-left: 0;
+  margin-right: 0;
+}
+.empty-illustration {
+  border-radius: 8px;
+}
+@media (max-width: 360px) {
+  .materials-page {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .page-title {
+    font-size: 26px;
+  }
+  .filter-chip {
+    padding: 0 9px;
+  }
 }
 </style>

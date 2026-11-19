@@ -10,6 +10,7 @@ from app.api.deps import CurrentDevice, DbSession
 from app.core.config import settings
 from app.core.security import new_id
 from app.models import Attachment
+from app.services.file_access import signed_file_url
 from app.services.record_utils import MODULE_MODELS, get_record_or_404, log_operation
 
 router = APIRouter(prefix="/attachments", tags=["附件管理"])
@@ -44,6 +45,27 @@ def make_thumbnail(source: Path, target: Path) -> None:
         if image.mode not in {"RGB", "RGBA"}:
             image = image.convert("RGB")
         image.save(target, format="JPEG", quality=82, optimize=True)
+
+
+def serialize_attachment(record: Attachment) -> dict:
+    file_url = signed_file_url("attachment", record.attach_id, "original")
+    thumbnail_url = (
+        signed_file_url("attachment", record.attach_id, "thumbnail")
+        if record.thumbnail_url
+        else None
+    )
+    return {
+        "attach_id": record.attach_id,
+        "biz_id": record.biz_id,
+        "biz_type": record.biz_type,
+        "file_name": record.file_name,
+        "file_type": record.file_type,
+        "file_size": record.file_size,
+        "file_url": file_url,
+        "thumbnail_url": thumbnail_url,
+        "preview_url": thumbnail_url or file_url,
+        "upload_time": record.upload_time,
+    }
 
 
 @router.post("", status_code=201)
@@ -114,18 +136,7 @@ async def upload_attachment(
     )
     db.commit()
     db.refresh(record)
-    return {
-        "attach_id": record.attach_id,
-        "biz_id": record.biz_id,
-        "biz_type": record.biz_type,
-        "file_name": record.file_name,
-        "file_type": record.file_type,
-        "file_size": record.file_size,
-        "file_url": record.file_url,
-        "thumbnail_url": record.thumbnail_url,
-        "preview_url": record.thumbnail_url or record.file_url,
-        "upload_time": record.upload_time,
-    }
+    return serialize_attachment(record)
 
 
 @router.get("")
@@ -145,16 +156,7 @@ def list_attachments(
     ).all()
     return {
         "items": [
-            {
-                "attach_id": item.attach_id,
-                "file_name": item.file_name,
-                "file_type": item.file_type,
-                "file_size": item.file_size,
-                "file_url": item.file_url,
-                "thumbnail_url": item.thumbnail_url,
-                "preview_url": item.thumbnail_url or item.file_url,
-                "upload_time": item.upload_time,
-            }
+            serialize_attachment(item)
             for item in records
         ]
     }

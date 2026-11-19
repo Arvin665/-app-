@@ -65,6 +65,80 @@
         <text class="archive-action">{{ dailyLocked ? "查看" : "去确认" }}</text>
       </view>
 
+      <view class="reminder-service" :class="`tone-${reminderTone}`">
+        <view class="reminder-service-head">
+          <view class="reminder-service-icon">
+            <LoaderCircle v-if="reminderPermission === 'checking'" :size="18" class="spin" />
+            <BellRing v-else-if="reminderPermission === 'granted'" :size="18" />
+            <BellOff v-else :size="18" />
+          </view>
+          <view class="reminder-service-copy">
+            <text class="reminder-service-title">{{ reminderTitle }}</text>
+            <text class="reminder-service-note">{{ reminderDescription }}</text>
+          </view>
+          <view v-if="reminderActionText" class="reminder-service-action pressable" @tap="enableReminders">
+            {{ reminderActionText }}
+          </view>
+        </view>
+        <view class="reminder-facts">
+          <view class="reminder-fact">
+            <text class="fact-label">提醒方式</text>
+            <text class="fact-value">{{ reminderModeLabel }}</text>
+          </view>
+          <view class="reminder-fact">
+            <text class="fact-label">全天计划</text>
+            <text class="fact-value">{{ ALL_DAY_REMINDER_TIME }}</text>
+          </view>
+          <view class="reminder-fact wide">
+            <text class="fact-label">下一提醒</text>
+            <text class="fact-value">{{ nextReminderText }}</text>
+          </view>
+        </view>
+        <view class="reminder-service-footer">
+          <text class="reminder-footer-note">每天 08:30 / 17:30 固定提醒</text>
+          <view class="reminder-service-link pressable" @tap="openReminderService">
+            <text>管理提醒</text>
+            <ChevronRight :size="14" />
+          </view>
+        </view>
+      </view>
+
+      <StatusNotice
+        v-if="reminderError"
+        tone="error"
+        title="提醒设置没有完成"
+        :message="reminderError"
+        action-text="重试"
+        closeable
+        @action="enableReminders"
+        @close="reminderError = ''"
+      />
+      <StatusNotice
+        v-if="actionError"
+        tone="error"
+        title="这项操作没有保存成功"
+        :message="actionError"
+        closeable
+        @close="actionError = ''"
+      />
+
+      <StatusNotice
+        v-if="plansError && plans.length"
+        tone="warning"
+        title="当前显示本机计划"
+        :message="plansError"
+        action-text="重新连接"
+        @action="loadPlans"
+      />
+      <StatusNotice
+        v-if="tab === 'records' && recordsError && records.length"
+        tone="warning"
+        title="当前显示本机记录"
+        :message="recordsError"
+        action-text="重新连接"
+        @action="loadAll"
+      />
+
       <view class="tab-switch">
         <view class="tab-item pressable" :class="{ active: tab === 'plans' }" @tap="switchTab('plans')">
           <CalendarDays :size="16" />
@@ -109,6 +183,11 @@
                 <view class="plan-meta">
                   <text>{{ formatPlanDate(plan.record_date) }}</text>
                   <text v-if="plan.related_project" class="meta-project">{{ plan.related_project }}</text>
+                </view>
+                <view class="reminder-line" :class="`tone-${reminderMeta(plan).tone}`">
+                  <BellRing v-if="reminderMeta(plan).tone === 'active'" :size="13" />
+                  <BellOff v-else :size="13" />
+                  <text>{{ reminderMeta(plan).label }}</text>
                 </view>
                 <text v-if="plan.ext_field_1" class="progress-note">{{ latestNote(plan.ext_field_1) }}</text>
 
@@ -168,19 +247,28 @@
           </view>
         </view>
 
-        <view v-if="!loading && !plans.length" class="empty-panel">
-          <view class="empty-mark"><CalendarDays :size="25" /></view>
-          <text class="empty-title">还没有待办计划</text>
-          <text class="empty-desc">可以说一件事和时间，App 会帮你整理成计划。</text>
-          <view class="empty-action pressable" @tap="openPlanVoice">
-            <Mic :size="15" />
-            <text>说第一条计划</text>
-          </view>
-        </view>
-        <view v-if="loading && !plans.length" class="loading-state">
-          <LoaderCircle :size="20" class="spin" />
-          <text>正在整理计划</text>
-        </view>
+        <StatePanel
+          v-if="loadingPlans && !plans.length"
+          state="loading"
+          title="正在整理计划"
+          description="今天的安排和你留下的计划正在同步。"
+        />
+        <StatePanel
+          v-else-if="plansError && !plans.length"
+          state="error"
+          title="计划暂时没有加载出来"
+          :description="plansError"
+          action-text="重新加载"
+          @action="loadPlans"
+        />
+        <StatePanel
+          v-else-if="!plans.length"
+          state="empty"
+          title="还没有待办计划"
+          description="说出事项和时间，App 会先拆成清单，核对后再创建提醒。"
+          action-text="说第一条计划"
+          @action="openPlanVoice"
+        />
       </template>
 
       <template v-else>
@@ -217,19 +305,28 @@
             <ChevronRight :size="15" class="record-arrow" />
           </view>
         </view>
-        <view v-if="!loading && !records.length" class="empty-panel">
-          <view class="empty-mark"><History :size="25" /></view>
-          <text class="empty-title">还没有工作记录</text>
-          <text class="empty-desc">把今天做过、看到或准备继续做的事说出来。</text>
-          <view class="empty-action pressable" @tap="openWorkEntry">
-            <Mic :size="15" />
-            <text>说一条工作记录</text>
-          </view>
-        </view>
-        <view v-if="loading && !records.length" class="loading-state">
-          <LoaderCircle :size="20" class="spin" />
-          <text>正在翻阅记录</text>
-        </view>
+        <StatePanel
+          v-if="loadingRecords && !records.length"
+          state="loading"
+          title="正在翻阅工作记录"
+          description="已经收好的进展和材料正在同步。"
+        />
+        <StatePanel
+          v-else-if="recordsError && !records.length"
+          state="error"
+          title="工作记录暂时没有加载出来"
+          :description="recordsError"
+          action-text="重新加载"
+          @action="loadAll"
+        />
+        <StatePanel
+          v-else-if="!records.length"
+          state="empty"
+          title="还没有工作记录"
+          description="把今天做过、看到或准备继续做的事说出来。"
+          action-text="说一条工作记录"
+          @action="openWorkEntry"
+        />
       </template>
 
       <view class="scroll-space"></view>
@@ -355,6 +452,8 @@ import { computed, reactive, ref } from "vue";
 import { onLoad, onPullDownRefresh, onShow, onUnload } from "@dcloudio/uni-app";
 import {
   CalendarDays,
+  BellOff,
+  BellRing,
   Check,
   ChevronRight,
   Clock3,
@@ -368,6 +467,8 @@ import {
 import AppTabBar from "../../components/AppTabBar.vue";
 import DailyConfirmModal from "../../components/DailyConfirmModal.vue";
 import PageHeader from "../../components/PageHeader.vue";
+import StatePanel from "../../components/StatePanel.vue";
+import StatusNotice from "../../components/StatusNotice.vue";
 import { localDate, normalizeRecordPayload } from "../../data/modules";
 import { isNetworkError, request } from "../../services/api";
 import {
@@ -377,6 +478,10 @@ import {
 } from "../../services/localDb";
 import {
   cancelPlanReminder,
+  ALL_DAY_REMINDER_TIME,
+  hasBackgroundReminderSupport,
+  notificationPermission,
+  requestNotificationPermission,
   schedulePlanReminder,
 } from "../../services/reminders";
 import { dictationAvailable, startDictation } from "../../services/voice";
@@ -387,6 +492,11 @@ const plans = ref([]);
 const todayPlans = ref([]);
 const loadingRecords = ref(false);
 const loadingPlans = ref(false);
+const recordsError = ref("");
+const plansError = ref("");
+const reminderError = ref("");
+const actionError = ref("");
+const reminderPermission = ref("checking");
 const dailyLocked = ref(false);
 const dailyModal = ref(false);
 const archiving = ref(false);
@@ -445,6 +555,121 @@ const todayDisplay = computed(() => {
   const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
   return `${current.getMonth() + 1} 月 ${current.getDate()} 日 · ${weekdays[current.getDay()]}`;
 });
+const reminderTone = computed(() => {
+  if (reminderPermission.value === "granted") return "ready";
+  if (reminderPermission.value === "checking") return "checking";
+  if (reminderPermission.value === "unsupported") return "info";
+  return "warning";
+});
+const reminderTitle = computed(() => {
+  if (reminderPermission.value === "checking") return "正在检查提醒服务";
+  if (reminderPermission.value === "granted") return hasBackgroundReminderSupport() ? "后台提醒已开启" : "网页提醒已开启";
+  if (reminderPermission.value === "unsupported") return "当前环境不支持系统提醒";
+  return "提醒服务还没有开启";
+});
+const reminderDescription = computed(() => {
+  if (reminderPermission.value === "checking") return "正在读取系统通知权限";
+  if (reminderPermission.value === "granted") {
+    return hasBackgroundReminderSupport()
+      ? `系统通知可用，未指定时刻按 ${ALL_DAY_REMINDER_TIME} 提醒。`
+      : `网页打开时会提醒；安装 App 后可后台通知。未指定时刻按 ${ALL_DAY_REMINDER_TIME} 提醒。`;
+  }
+  if (reminderPermission.value === "unsupported") return "计划仍会保存，但当前环境无法弹出系统通知。";
+  return `计划会正常保存，但到点不会主动通知。未指定时刻默认按 ${ALL_DAY_REMINDER_TIME} 提醒。`;
+});
+const reminderActionText = computed(() => {
+  if (reminderPermission.value === "checking" || reminderPermission.value === "unsupported") return "";
+  if (reminderPermission.value === "granted") return "同步提醒";
+  return reminderPermission.value === "denied" ? "查看设置" : "开启提醒";
+});
+const reminderModeLabel = computed(() =>
+  hasBackgroundReminderSupport() ? "App 后台通知" : "网页前台提醒",
+);
+const nextReminderText = computed(() => {
+  const now = Date.now();
+  const next = plans.value
+    .filter((plan) => ![2, 3].includes(Number(plan.ext_field_5 ?? 0)))
+    .map((plan) => ({
+      plan,
+      trigger: new Date(`${plan.record_date}T${plan.ext_field_4 || ALL_DAY_REMINDER_TIME}:00`).getTime(),
+    }))
+    .filter((item) => Number.isFinite(item.trigger) && item.trigger > now)
+    .sort((a, b) => a.trigger - b.trigger)[0];
+  if (!next) return "暂无未来提醒";
+  const date = new Date(next.trigger);
+  const dateLabel = `${date.getMonth() + 1} 月 ${date.getDate()} 日 ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  return `${dateLabel} · ${String(next.plan.content || "待办计划").slice(0, 16)}`;
+});
+
+async function refreshReminderPermission() {
+  reminderPermission.value = await notificationPermission().catch(() => "unknown");
+}
+
+async function rescheduleActiveReminders() {
+  const active = plans.value.filter((plan) => ![2, 3].includes(Number(plan.ext_field_5 ?? 0)));
+  const outcomes = await Promise.allSettled(
+    active.map((plan) => schedulePlanReminder(plan, { requestPermission: false })),
+  );
+  return {
+    scheduled: outcomes.filter((item) => item.status === "fulfilled" && item.value).length,
+    failed: outcomes.filter((item) => item.status === "rejected").length,
+  };
+}
+
+async function enableReminders() {
+  if (reminderPermission.value === "checking") return;
+  reminderError.value = "";
+  if (reminderPermission.value === "unsupported") {
+    uni.showModal({
+      title: "当前环境不支持系统提醒",
+      content: "网页端只能在页面打开时提醒。安装 App 后可获得 Android / iOS 后台通知。",
+      showCancel: false,
+    });
+    return;
+  }
+  try {
+    if (reminderPermission.value === "granted") {
+      const result = await rescheduleActiveReminders();
+      if (result.failed) {
+        reminderError.value = `有 ${result.failed} 条提醒没有同步成功，请检查系统通知权限后重试。`;
+        return;
+      }
+      uni.showToast({ title: "提醒已重新同步", icon: "success" });
+      return;
+    }
+    const result = await requestNotificationPermission();
+    reminderPermission.value = result;
+    if (result === "granted") {
+      const rescheduled = await rescheduleActiveReminders();
+      if (rescheduled.failed) reminderError.value = `提醒权限已开启，但有 ${rescheduled.failed} 条提醒没有同步成功。`;
+      else uni.showToast({ title: "提醒服务已开启", icon: "success" });
+      return;
+    }
+    if (result === "unknown") {
+      reminderError.value = "系统没有返回通知权限状态，请稍后重试或到系统设置中检查。";
+      return;
+    }
+    uni.showModal({
+      title: "需要开启通知权限",
+      content: "请在系统设置中找到当前浏览器或商办信息资产库，开启通知权限后再回来同步提醒。",
+      showCancel: false,
+    });
+  } catch (error) {
+    reminderError.value = error.message || "提醒服务暂时没有设置成功，请稍后重试。";
+  }
+}
+
+function reminderMeta(plan) {
+  const status = Number(plan.ext_field_5 ?? 0);
+  if ([2, 3].includes(status)) return { label: "计划已结束，提醒已取消", tone: "muted" };
+  if (reminderPermission.value !== "granted") return { label: "系统提醒未开启", tone: "warning" };
+  const time = plan.ext_field_4 || ALL_DAY_REMINDER_TIME;
+  const trigger = new Date(`${plan.record_date}T${time}:00`).getTime();
+  if (!trigger || trigger <= Date.now()) return { label: "提醒时间已过", tone: "muted" };
+  const dateLabel = plan.record_date === today ? "今天" : formatPlanDate(plan.record_date);
+  const timeLabel = plan.ext_field_4 ? plan.ext_field_4 : `${ALL_DAY_REMINDER_TIME}（全天）`;
+  return { label: `${dateLabel} ${timeLabel} 提醒`, tone: "active" };
+}
 
 async function loadAll() {
   if (loadingRecords.value) return;
@@ -452,12 +677,13 @@ async function loadAll() {
   try {
     const result = await request("/work-logs?page_size=500");
     records.value = result.items || [];
+    recordsError.value = "";
     await cacheRecords("work", records.value, new Date().toISOString());
   } catch (error) {
     records.value = await getCachedRecords("work");
-    if (!records.value.length) {
-      uni.showToast({ title: "网络不可用，暂无本地记录", icon: "none" });
-    }
+    recordsError.value = records.value.length
+      ? `${error.message || "服务暂时不可用"} 当前展示最近一次保存在本机的记录。`
+      : error.message || "无法读取工作记录，请检查网络和资料库服务。";
   } finally {
     loadingRecords.value = false;
   }
@@ -474,12 +700,15 @@ async function loadPlans() {
     plans.value = planResult.items || [];
     todayPlans.value = todayResult.items || [];
     dailyLocked.value = Boolean(todayResult.locked);
+    plansError.value = "";
     plans.value.forEach((plan) => schedulePlanReminder(plan));
   } catch (error) {
     const cached = await getCachedRecords("work");
     plans.value = cached.filter((item) => item.record_type === "待办计划");
     todayPlans.value = plans.value.filter((item) => item.record_date === today);
-    uni.showToast({ title: "网络不可用，已显示本地计划", icon: "none" });
+    plansError.value = plans.value.length
+      ? `${error.message || "服务暂时不可用"} 当前展示最近一次保存在本机的计划。`
+      : error.message || "无法读取计划，请检查网络和资料库服务。";
   } finally {
     loadingPlans.value = false;
     maybeOpenDaily();
@@ -512,6 +741,10 @@ function rememberDismiss() {
 
 function openPlanVoice() {
   uni.navigateTo({ url: "/pages/plan-review/index?voice=1" });
+}
+
+function openReminderService() {
+  uni.navigateTo({ url: "/pages/reminders/index" });
 }
 
 function openWorkEntry() {
@@ -584,6 +817,7 @@ function statusPayload(plan, status, note) {
 }
 
 async function submitPlanStatus(plan, status, note) {
+  actionError.value = "";
   try {
     let updated;
     try {
@@ -607,7 +841,7 @@ async function submitPlanStatus(plan, status, note) {
     else schedulePlanReminder(updated);
     uni.showToast({ title: "状态已更新", icon: "success" });
   } catch (error) {
-    uni.showToast({ title: error.message || "状态更新失败", icon: "none" });
+    actionError.value = error.message || "状态更新失败，请检查网络后重试。";
   }
 }
 
@@ -643,6 +877,7 @@ async function submitPostpone() {
     uni.showToast({ title: "请说明推迟原因", icon: "none" });
     return;
   }
+  actionError.value = "";
   const plan = postpone.plan;
   const newDate = postpone.date;
   const newTime = postpone.time;
@@ -692,7 +927,7 @@ async function submitPostpone() {
     await loadPlans();
     uni.showToast({ title: "计划已推迟", icon: "success" });
   } catch (error) {
-    uni.showToast({ title: error.message || "推迟失败", icon: "none" });
+    actionError.value = error.message || "推迟失败，请检查网络后重试。";
   }
 }
 
@@ -705,6 +940,7 @@ async function archiveDaily(insight) {
     uni.showToast({ title: "今日计划已经归档", icon: "none" });
     return;
   }
+  actionError.value = "";
   archiving.value = true;
   try {
     await request("/work-logs/archive-daily", {
@@ -717,7 +953,7 @@ async function archiveDaily(insight) {
     uni.showToast({ title: "已归档为每日复盘", icon: "success" });
     await Promise.all([loadAll(), loadPlans()]);
   } catch (error) {
-    uni.showToast({ title: error.message || "归档失败，请联网后重试", icon: "none" });
+    actionError.value = error.message || "归档失败，请联网后重试。";
   } finally {
     archiving.value = false;
   }
@@ -865,6 +1101,7 @@ onLoad(() => {
 
 onShow(() => {
   loadPlans();
+  refreshReminderPermission();
   if (!records.value.length) loadAll();
   setTimeout(maybeOpenDaily, 600);
 });
@@ -1025,6 +1262,142 @@ onUnload(() => {
 .voice-arrow {
   flex: none;
   color: #a8cbc2;
+}
+.reminder-service {
+  display: block;
+  margin: 12px 16px 0;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.reminder-service.tone-ready {
+  border-color: #cfe5df;
+  background: #f3faf7;
+}
+.reminder-service.tone-warning {
+  border-color: #ead7c5;
+  background: #fffaf4;
+}
+.reminder-service-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.reminder-service-icon {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.tone-warning .reminder-service-icon {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.tone-info .reminder-service-icon {
+  background: var(--info-bg);
+  color: var(--info);
+}
+.reminder-service-copy {
+  min-width: 0;
+  flex: 1;
+}
+.reminder-service-title {
+  display: block;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+.reminder-service-note {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 17px;
+}
+.reminder-service-action {
+  min-height: 32px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 9px;
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+}
+.reminder-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.reminder-fact {
+  min-width: 0;
+  padding: 8px 9px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.62);
+}
+.reminder-fact.wide {
+  grid-column: 1 / -1;
+}
+.fact-label {
+  display: block;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.fact-value {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tone-warning .reminder-fact {
+  background: rgba(255, 255, 255, 0.72);
+}
+.tone-warning .reminder-service-action {
+  color: var(--warning);
+}
+.reminder-service-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px dashed rgba(28, 40, 37, 0.12);
+}
+.reminder-footer-note {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reminder-service-link {
+  min-height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 650;
 }
 .archive-banner {
   min-height: 66px;
@@ -1227,6 +1600,29 @@ onUnload(() => {
   margin-top: 5px;
   color: var(--text-muted);
   font-size: 8px;
+}
+.reminder-line {
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 7px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 17px;
+}
+.reminder-line.tone-warning {
+  background: var(--warning-bg);
+  color: #8b5128;
+}
+.reminder-line.tone-muted {
+  background: var(--soft);
+  color: var(--text-muted);
 }
 .meta-project {
   padding-left: 7px;
@@ -1694,5 +2090,82 @@ onUnload(() => {
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Final mobile readability pass. */
+.header-action,
+.archive-action,
+.tab-item,
+.text-action {
+  letter-spacing: 0;
+}
+.plan-hero,
+.archive-banner,
+.plan-card,
+.completed-list,
+.record-list {
+  border-radius: 8px;
+}
+.hero-kicker,
+.section-kicker,
+.sheet-kicker {
+  font-size: 10px;
+  letter-spacing: 0;
+}
+.hero-date,
+.stat-label,
+.section-count {
+  font-size: 11px;
+}
+.voice-note,
+.archive-note {
+  font-size: 11px;
+  line-height: 17px;
+}
+.archive-title,
+.record-content {
+  font-size: 13px;
+}
+.tab-count {
+  font-size: 10px;
+}
+.plan-status,
+.plan-meta,
+.progress-note,
+.done-meta,
+.record-type,
+.record-project {
+  font-size: 11px;
+}
+.progress-note {
+  line-height: 17px;
+  white-space: normal;
+}
+.status-pill {
+  height: 30px;
+  font-size: 11px;
+}
+.text-action {
+  min-height: 32px;
+  font-size: 11px;
+}
+.done-title,
+.record-content {
+  line-height: 20px;
+}
+.record-entry,
+.voice-input-button,
+.sheet-primary,
+.sheet-secondary {
+  font-size: 13px;
+}
+@media (max-width: 360px) {
+  .reminder-service-action {
+    padding: 0 7px;
+    font-size: 10px;
+  }
+  .status-grid {
+    flex-wrap: wrap;
+  }
 }
 </style>

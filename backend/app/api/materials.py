@@ -14,6 +14,7 @@ from app.api.deps import CurrentDevice, DbSession
 from app.core.config import settings
 from app.core.security import new_id
 from app.models import Material, WorkLog
+from app.services.file_access import signed_file_url
 from app.services.material_extract import extract_material, json_dump
 from app.services.record_utils import MODULE_MODELS, get_record_or_404, log_operation
 
@@ -69,6 +70,12 @@ def serialize_material_for_device(
     structured = parse_json(record.extracted_data, {"fields": {}, "confidence": {}})
     metadata = parse_json(record.metadata_json, {})
     text = record.extracted_text or ""
+    file_url = signed_file_url("material", record.material_id, "original")
+    thumbnail_url = (
+        signed_file_url("material", record.material_id, "thumbnail")
+        if record.thumbnail_url
+        else None
+    )
     payload = {
         "material_id": record.material_id,
         "module": record.module,
@@ -78,9 +85,9 @@ def serialize_material_for_device(
         "file_type": record.file_type,
         "mime_type": record.mime_type,
         "file_size": record.file_size,
-        "file_url": record.file_url,
-        "thumbnail_url": record.thumbnail_url,
-        "preview_url": record.thumbnail_url or record.file_url,
+        "file_url": file_url,
+        "thumbnail_url": thumbnail_url,
+        "preview_url": thumbnail_url or file_url,
         "extraction_status": record.extraction_status,
         "extraction_note": record.extraction_note,
         "extracted_fields": structured.get("fields", {}),

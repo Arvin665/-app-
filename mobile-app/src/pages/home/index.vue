@@ -5,17 +5,40 @@
         <view class="brand-line"><view class="brand-dot"></view><text class="brand-name">ASSET LIBRARY</text></view>
         <text class="home-greeting">把知道的事，留给下一次判断。</text>
       </view>
-      <view class="sync-status" :class="{ pending: pendingCount > 0 }">
-        <CloudOff v-if="pendingCount" :size="14" />
+      <view class="sync-status" :class="{ pending: pendingCount > 0, error: dashboardError, loading: loadingDashboard }">
+        <LoaderCircle v-if="loadingDashboard" :size="14" class="spin" />
+        <CloudOff v-else-if="dashboardError" :size="14" />
+        <CloudOff v-else-if="pendingCount" :size="14" />
         <CloudCheck v-else :size="14" />
-        <text>{{ pendingCount ? `${pendingCount} 条待同步` : "已同步" }}</text>
+        <text>{{ loadingDashboard ? "同步中" : dashboardError ? "同步异常" : pendingCount ? `${pendingCount} 条待同步` : "已同步" }}</text>
       </view>
     </view>
+
+    <StatusNotice
+      v-if="dashboardError"
+      tone="warning"
+      title="首页数据没有完全同步"
+      :message="dashboardError"
+      action-text="重新同步"
+      @action="loadDashboard"
+    />
 
     <view class="today-strip">
       <view><text class="today-number">{{ todayRecords }}</text><text class="today-label">今日记录</text></view>
       <view><text class="today-number">{{ materialTotal }}</text><text class="today-label">份资料</text></view>
       <view class="today-date"><text>{{ todayDisplay }}</text><text>{{ weekday }}</text></view>
+    </view>
+
+    <view v-if="todayPlansLoaded" class="today-tasks-entry pressable" @tap="openTodayTasks">
+      <view class="today-task-icon"><CalendarCheck2 :size="17" /></view>
+      <view class="today-task-copy">
+        <view class="today-task-title-row">
+          <text class="today-task-title">今日待办</text>
+          <text v-if="todayPlans.length" class="today-task-count">{{ todayCompleted }}/{{ todayPlans.length }}</text>
+        </view>
+        <text class="today-task-desc">{{ todayTaskSummary }}</text>
+      </view>
+      <ChevronRight :size="16" class="today-task-arrow" />
     </view>
 
     <view v-if="showDailyBanner" class="daily-banner pressable" @tap="openDailyPlans">
@@ -79,31 +102,64 @@
     </view>
 
     <AppTabBar active="home" />
+    <TodayTasksModal
+      :visible="todayTasksVisible"
+      :plans="todayPlans"
+      :date="today"
+      :locked="todayPlansLocked"
+      :updating-id="updatingPlanId"
+      :loading="todayPlansLoading"
+      :error="todayPlansError"
+      @close="todayTasksVisible = false"
+      @update-status="updateTodayTaskStatus"
+      @open-plans="openPlansFromToday"
+      @retry="loadDashboard"
+    />
   </view>
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { onPullDownRefresh, onShow } from "@dcloudio/uni-app";
-import { Archive, ArrowUpRight, CalendarCheck2, ChevronRight, CloudCheck, CloudOff, Mic } from "@lucide/vue";
+import { Archive, ArrowUpRight, CalendarCheck2, ChevronRight, CloudCheck, CloudOff, LoaderCircle, Mic } from "@lucide/vue";
 import AppTabBar from "../../components/AppTabBar.vue";
 import ModuleMark from "../../components/ModuleMark.vue";
+import StatusNotice from "../../components/StatusNotice.vue";
+import TodayTasksModal from "../../components/TodayTasksModal.vue";
 import { homeModules, localDate, moduleList, recordDate, recordTitle } from "../../data/modules";
 import { ensureBound } from "../../services/session";
 import { request } from "../../services/api";
 import { listOfflineQueue } from "../../services/localDb";
 
 const showDailyBanner = ref(false);
+const dashboardError = ref("");
+const loadingDashboard = ref(false);
 const counts = ref({});
 const latest = ref({});
 const recent = ref([]);
 const todayRecords = ref(0);
 const materialTotal = ref(0);
 const pendingCount = ref(0);
+const todayPlans = ref([]);
+const todayPlansLocked = ref(false);
+const todayPlansError = ref("");
+const todayPlansLoading = ref(false);
+const todayPlansLoaded = ref(false);
+const todayTasksVisible = ref(false);
+const updatingPlanId = ref("");
 const today = localDate();
 const now = new Date();
 const todayDisplay = `${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}`;
 const weekday = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][now.getDay()];
+let autoOpenHandled = false;
+const todayCompleted = computed(() => todayPlans.value.filter((plan) => Number(plan.ext_field_5 ?? 0) === 2).length);
+const todayPending = computed(() => todayPlans.value.filter((plan) => Number(plan.ext_field_5 ?? 0) !== 2).length);
+const todayTaskSummary = computed(() => {
+  if (todayPlansLoading.value && !todayPlansLoaded.value) return "正在同步今天的计划";
+  if (todayPlansError.value) return "今日待办同步失败，点开查看";
+  if (!todayPlans.value.length) return "今天还没有计划，点开添加";
+  return todayPending.value ? `${todayPending.value} 项还没完成，点开更新进度` : "今天的事项都完成了";
+});
 
 function openModule(module) {
   if (!ensureBound()) return;
@@ -136,15 +192,81 @@ function openDailyPlans() {
   uni.navigateTo({ url: "/pages/plans/index" });
 }
 
-async function loadDashboard() {
-  if (!ensureBound()) return;
-  const [queue, materialResult] = await Promise.all([
-    listOfflineQueue().catch(() => []),
-    request("/materials?page_size=1").catch(() => ({ total: 0 })),
-  ]);
-  pendingCount.value = queue.length;
-  materialTotal.value = Number(materialResult?.total || 0);
+function openTodayTasks() {
+  todayTasksVisible.value = true;
+}
 
+function openPlansFromToday() {
+  todayTasksVisible.value = false;
+  setTimeout(openDailyPlans, 220);
+}
+
+function replaceTodayPlan(updated) {
+  todayPlans.value = todayPlans.value.map((item) => (
+    item.record_id === updated.record_id ? { ...item, ...updated } : item
+  ));
+}
+
+async function updateTodayTaskStatus({ plan, status }) {
+  if (todayPlansLocked.value || updatingPlanId.value === plan.record_id) return;
+  const previousStatus = plan.ext_field_5;
+  updatingPlanId.value = plan.record_id;
+  replaceTodayPlan({ ...plan, ext_field_5: status });
+  try {
+    const updated = await request(`/work-logs/${plan.record_id}/status`, {
+      method: "POST",
+      data: { status, note: "" },
+    });
+    replaceTodayPlan(updated);
+    uni.showToast({ title: "进度已更新", icon: "success", duration: 1200 });
+  } catch (error) {
+    replaceTodayPlan({ ...plan, ext_field_5: previousStatus });
+    uni.showToast({
+      title: error.message || "进度更新失败，请稍后重试",
+      icon: "none",
+      duration: 3000,
+    });
+  } finally {
+    if (updatingPlanId.value === plan.record_id) updatingPlanId.value = "";
+  }
+}
+
+function openTodayTasksOnLaunch() {
+  if (autoOpenHandled) return;
+  autoOpenHandled = true;
+  todayTasksVisible.value = true;
+}
+
+async function loadDashboard() {
+  if (!ensureBound() || loadingDashboard.value) return;
+  loadingDashboard.value = true;
+  dashboardError.value = "";
+
+  const auxiliaryResultsPromise = Promise.allSettled([
+    listOfflineQueue(),
+    request("/materials?page_size=1"),
+  ]);
+  const dashboardFailures = [];
+  todayPlansLoading.value = true;
+  todayPlansError.value = "";
+  openTodayTasksOnLaunch();
+  try {
+    const todayPlansResult = await request(`/work-logs/plans?record_date=${today}`);
+    todayPlans.value = todayPlansResult.items || [];
+    todayPlansLocked.value = Boolean(todayPlansResult.locked);
+  } catch (error) {
+    todayPlansError.value = error.message || "今日待办没有同步";
+    dashboardFailures.push(todayPlansError.value);
+  } finally {
+    todayPlansLoaded.value = true;
+    todayPlansLoading.value = false;
+  }
+
+  const [queueResult, materialResult] = await auxiliaryResultsPromise;
+  if (queueResult.status === "fulfilled") pendingCount.value = queueResult.value.length;
+  else dashboardFailures.push("本机待同步队列暂时无法读取");
+  if (materialResult.status === "fulfilled") materialTotal.value = Number(materialResult.value.total || 0);
+  else dashboardFailures.push(materialResult.reason?.message || "资料总数没有同步");
   const results = await Promise.allSettled(
     moduleList.map(async (module) => {
       const [response, todayResponse] = await Promise.all([
@@ -167,13 +289,22 @@ async function loadDashboard() {
       };
     }),
   );
+  const failedModules = results.filter((result) => result.status === "rejected");
+  if (failedModules.length) {
+    const message = failedModules[0].reason?.message || "部分业务模块暂时没有连上";
+    dashboardFailures.push(`${failedModules.length} 个模块没有同步：${message}`);
+  }
   const all = results.flatMap((result) => (result.status === "fulfilled" ? result.value.items : []));
   recent.value = all.filter((item) => item.date).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4);
   todayRecords.value = results.reduce(
     (sum, result) => sum + (result.status === "fulfilled" ? result.value.todayCount : 0),
     0,
   );
+  if (dashboardFailures.length) {
+    dashboardError.value = Array.from(new Set(dashboardFailures)).join("；");
+  }
   await checkDailyBanner();
+  loadingDashboard.value = false;
 }
 
 async function checkDailyBanner() {
@@ -182,12 +313,7 @@ async function checkDailyBanner() {
     showDailyBanner.value = false;
     return;
   }
-  try {
-    const result = await request(`/work-logs/plans?record_date=${today}`);
-    showDailyBanner.value = Boolean(result.items?.length && !result.locked);
-  } catch (error) {
-    showDailyBanner.value = false;
-  }
+  showDailyBanner.value = Boolean(todayPlans.value.length && !todayPlansLocked.value);
 }
 
 onShow(loadDashboard);
@@ -200,6 +326,10 @@ onPullDownRefresh(async () => {
 
 <style scoped>
 .home-page { padding: calc(16px + env(safe-area-inset-top)) 16px 0; overflow: hidden; }
+.home-page :deep(.status-notice) {
+  margin-left: 0;
+  margin-right: 0;
+}
 .home-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .brand-line { display: flex; align-items: center; gap: 6px; }
 .brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
@@ -207,6 +337,8 @@ onPullDownRefresh(async () => {
 .home-greeting { display: block; max-width: 290px; margin-top: 8px; color: var(--ink); font-size: 23px; font-weight: 760; line-height: 31px; }
 .sync-status { min-height: 30px; display: flex; align-items: center; gap: 5px; padding: 0 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-secondary); font-size: 10px; white-space: nowrap; }
 .sync-status.pending { border-color: #f0d7c0; background: var(--warning-bg); color: var(--warning); }
+.sync-status.error { border-color: #ead4cf; background: #fff7f5; color: var(--danger); }
+.sync-status.loading { border-color: #cfe5df; background: var(--accent-soft); color: var(--accent); }
 .today-strip { display: grid; grid-template-columns: 1fr 1fr 1.2fr; margin-top: 20px; padding: 13px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .today-strip > view { min-width: 0; padding: 0 12px; border-right: 1px solid var(--border); }
 .today-strip > view:first-child { padding-left: 0; }
@@ -214,6 +346,14 @@ onPullDownRefresh(async () => {
 .today-number { display: block; color: var(--ink); font-size: 23px; font-weight: 760; line-height: 28px; }
 .today-label, .today-date text { display: block; margin-top: 2px; color: var(--text-muted); font-size: 10px; line-height: 15px; }
 .today-date text:first-child { margin-top: 3px; color: var(--text-secondary); font-size: 16px; font-weight: 700; }
+.today-tasks-entry { min-height: 56px; display: flex; align-items: center; gap: 9px; margin-top: 12px; padding: 9px 11px; border: 1px solid #cfe5df; border-radius: var(--radius); background: #f7fcfa; }
+.today-task-icon { width: 32px; height: 32px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
+.today-task-copy { flex: 1; min-width: 0; }
+.today-task-title-row { display: flex; align-items: center; gap: 7px; }
+.today-task-title { color: var(--text-primary); font-size: 12px; font-weight: 700; }
+.today-task-count { color: var(--accent); font-size: 10px; font-weight: 700; }
+.today-task-desc { display: block; margin-top: 2px; color: var(--text-muted); font-size: 9px; line-height: 14px; }
+.today-task-arrow { flex: none; color: var(--accent); }
 .daily-banner { min-height: 58px; display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 10px 12px; border: 1px solid #ecd8c6; border-radius: var(--radius); background: var(--warning-bg); color: var(--warning); }
 .banner-icon { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: rgba(255, 255, 255, 0.55); }
 .banner-copy { flex: 1; }
@@ -254,4 +394,10 @@ onPullDownRefresh(async () => {
 .recent-title { display: block; overflow: hidden; color: var(--text-primary); font-size: 13px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
 .recent-meta { display: block; margin-top: 3px; color: var(--text-muted); font-size: 10px; }
 .recent-arrow { color: var(--text-muted); }
+.spin {
+  animation: spin 900ms linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 </style>

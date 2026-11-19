@@ -56,6 +56,15 @@
         </view>
       </view>
 
+      <StatusNotice
+        v-if="pageError"
+        tone="error"
+        title="这次没有完成"
+        :message="pageError"
+        closeable
+        @close="pageError = ''"
+      />
+
       <view class="record-summary" :class="{ incomplete: missingFields.length }">
         <view class="summary-icon"><Check v-if="!missingFields.length" :size="17" /><CircleHelp v-else :size="17" /></view>
         <view class="summary-copy">
@@ -307,6 +316,7 @@ import {
 } from "@lucide/vue";
 import PageHeader from "../../components/PageHeader.vue";
 import ModuleMark from "../../components/ModuleMark.vue";
+import StatusNotice from "../../components/StatusNotice.vue";
 import {
   initialFields,
   localDate,
@@ -332,6 +342,7 @@ import {
   saveDraft,
 } from "../../services/localDb";
 import { schedulePlanReminder } from "../../services/reminders";
+import { storePlanReview } from "../../services/planReview";
 import { ensureBound, getSession } from "../../services/session";
 
 const moduleKey = ref("sale");
@@ -348,6 +359,7 @@ const inputText = ref("");
 const voiceStatus = ref("点一下麦克风，把事情完整说给我听");
 const analyzing = ref(false);
 const saving = ref(false);
+const pageError = ref("");
 const uploadingCount = ref(0);
 const pendingFiles = ref([]);
 const materials = ref([]);
@@ -448,6 +460,7 @@ function resetState() {
   inputText.value = "";
   pendingFiles.value = [];
   materials.value = [];
+  pageError.value = "";
   voiceStatus.value = "点一下麦克风，把事情完整说给我听";
   closeEditor();
 }
@@ -495,9 +508,50 @@ function extractionIntent() {
   return moduleKey.value === "work" && form.value.record_type === "待办计划" ? "plans" : "record";
 }
 
+function planReviewCandidates(result, rawText) {
+  const candidates = Array.isArray(result.plan_candidates)
+    ? result.plan_candidates.filter((item) => String(item?.content || "").trim())
+    : [];
+  if (candidates.length) return candidates;
+  if (result.fields?.record_type !== "待办计划" || !result.fields?.content) return [];
+  return [{
+    content: String(result.fields.content).trim(),
+    record_date: result.fields.record_date || today,
+    ext_field_4: result.fields.ext_field_4 || "",
+    related_project: result.fields.related_project || "",
+    confidence: Number(result.confidence?.content || 0.7),
+    source_text: rawText,
+  }];
+}
+
+function shouldReviewAsPlans(result, rawText, candidates) {
+  if (moduleKey.value !== "work" || !candidates.length) return false;
+  if (result.fields?.record_type === "待办计划" || candidates.length > 1) return true;
+  return /计划|提醒|待办|安排|要做|记得|别忘|明天|后天|下周|下个月/.test(rawText);
+}
+
+function openPlanReview(result, rawText) {
+  const candidates = planReviewCandidates(result, rawText).map((item) => ({
+    ...item,
+    source_text: item.source_text || rawText,
+  }));
+  if (!shouldReviewAsPlans(result, rawText, candidates)) return false;
+  storePlanReview({
+    candidates,
+    provider: result.provider || "",
+    rawText: result.corrected_text || rawText,
+    source: "entry",
+  });
+  uni.vibrateShort?.({ type: "light" });
+  uni.showToast({ title: `已拆成 ${candidates.length} 条，请逐条核对`, icon: "none", duration: 1200 });
+  setTimeout(() => uni.navigateTo({ url: "/pages/plan-review/index?from=entry" }), 180);
+  return true;
+}
+
 async function analyzeText(text) {
   const trimmed = String(text || "").trim();
   if (!trimmed || analyzing.value) return;
+  pageError.value = "";
   analyzing.value = true;
   voiceStatus.value = "正在理解这段话，并整理到字段...";
   try {
@@ -525,12 +579,14 @@ async function analyzeText(text) {
         text: trimmed,
         intent: extractionIntent(),
       });
+      if (openPlanReview(result, trimmed)) return;
       applyExtraction(result, trimmed);
     }
     uni.vibrateShort?.({ type: "light" });
   } catch (error) {
     voiceStatus.value = error.message || "暂时没整理成功，原话还留在输入框";
     if (!inputText.value) inputText.value = trimmed;
+    pageError.value = `${voiceStatus.value} 原话已保留，可以稍后重试。`;
     uni.showToast({ title: voiceStatus.value, icon: "none", duration: 2600 });
   } finally {
     analyzing.value = false;
@@ -847,6 +903,7 @@ async function uploadOutstandingFiles(recordId) {
 
 async function saveRecord() {
   if (saving.value) return;
+  pageError.value = "";
   const missing = requiredMissing();
   if (missing.length) {
     uni.showToast({ title: `请先补充：${missing.map((item) => item.label).join("、")}`, icon: "none", duration: 2600 });
@@ -914,7 +971,8 @@ async function saveRecord() {
     }
     resetState();
   } catch (error) {
-    uni.showToast({ title: error.message || "保存失败，请稍后重试", icon: "none", duration: 2600 });
+    pageError.value = error.message || "保存失败，请稍后重试。已经填写的内容仍保留在当前页面。";
+    uni.showToast({ title: pageError.value, icon: "none", duration: 2600 });
   } finally {
     saving.value = false;
   }

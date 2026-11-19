@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     sensitive_field_key: str = "development-only-sensitive-key-change-me"
     bootstrap_invite_code: str = "246810"
     public_base_url: str = "http://localhost:8000"
+    file_url_ttl_seconds: int = 3600
     cors_origins: str = (
         "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,"
         "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,http://127.0.0.1:5176,"
@@ -30,9 +31,9 @@ class Settings(BaseSettings):
     vosk_model_path: str = ""
     sense_voice_model_path: str = ""
     deepseek_api_key: str = ""
-    deepseek_base_url: str = "https://api.deepseek.com/v1"
+    deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-chat"
-    deepseek_timeout_seconds: int = 45
+    deepseek_timeout_seconds: int = 90
     ffmpeg_binary: str = ""
     auto_create_tables: bool = True
     access_cache_seconds: int = 300
