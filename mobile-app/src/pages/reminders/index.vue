@@ -322,7 +322,7 @@ async function enableNotifications() {
   if (permission.value === "denied") {
     uni.showModal({
       title: "请重新开启通知",
-      content: "请到系统设置中找到当前浏览器或商办信息资产库，允许通知后再回来同步。",
+      content: "请到系统设置中找到当前浏览器或 Sayo Sense，允许通知后再回来同步。",
       showCancel: false,
     });
     return;

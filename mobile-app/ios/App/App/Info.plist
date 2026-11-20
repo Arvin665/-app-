@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>商办信息资产库</string>
+        <string>Sayo Sense</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -65,13 +65,13 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>用于把语音内容录入商办资料库。</string>
+	<string>用于在 Sayo Sense 中把语音内容录入商办资料库。</string>
 	<key>NSCameraUsageDescription</key>
-	<string>用于拍摄项目、交易凭证和业务材料。</string>
+	<string>用于在 Sayo Sense 中拍摄项目、交易凭证和业务材料。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>用于从相册导入项目图片和业务材料。</string>
+	<string>用于在 Sayo Sense 中从相册导入项目图片和业务材料。</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>用于保存应用生成或下载的业务资料。</string>
+	<string>用于保存 Sayo Sense 生成或下载的业务资料。</string>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>

@@ -1,10 +1,20 @@
 <script>
 import { scheduleDailyReminders } from "./services/reminders";
 import { setupNotificationActions } from "./services/reminders";
-import { checkBinding } from "./services/session";
 import { flushOfflineQueue } from "./services/localDb";
 
+function openDirectEntry(url) {
+  try {
+    const app = getApp();
+    if (app?.globalData) app.globalData.splashHandled = true;
+  } catch (error) {
+    console.warn("无法标记启动页直达入口", error);
+  }
+  uni.reLaunch({ url });
+}
+
 export default {
+  globalData: { splashHandled: false },
   onLaunch() {
     setupNotificationActions();
     // 点击本地通知时按消息载荷直达计划详情或计划列表。
@@ -13,21 +23,16 @@ export default {
       try {
         const payload = typeof message.payload === "string" ? JSON.parse(message.payload) : message.payload || {};
         if (payload.recordId) {
-          uni.reLaunch({ url: `/pages/detail/index?module=${payload.module || "work"}&id=${payload.recordId}` });
+          openDirectEntry(`/pages/detail/index?module=${payload.module || "work"}&id=${payload.recordId}`);
         } else {
-          uni.reLaunch({ url: "/pages/plans/index" });
+          openDirectEntry("/pages/plans/index");
         }
       } catch (error) {
-        uni.reLaunch({ url: "/pages/plans/index" });
+        openDirectEntry("/pages/plans/index");
       }
     });
     // #endif
-    // 已绑定设备直接进首页；首次启动或无本地身份时立即进入邀请码页。
-    checkBinding()
-      .then((session) => {
-        if (!session?.device_id) uni.reLaunch({ url: "/pages/bind/index" });
-      })
-      .catch(() => uni.reLaunch({ url: "/pages/bind/index" }));
+    // 启动页会完成身份校验，并在这里之后进入首页或邀请码页。
     flushOfflineQueue().catch(() => {});
     scheduleDailyReminders().catch((error) => {
       console.warn("每日提醒初始化失败", error);
@@ -39,9 +44,9 @@ export default {
     const isShareEntry = options?.query?.fromShare === "1" || options?.query?.share === "1";
     if (isShareEntry && module && ["sale", "lease", "work", "inspiration"].includes(module)) {
       // 只有显式分享链接才直达录入页，普通模块路由必须保留原页面。
-      setTimeout(() => uni.reLaunch({ url: `/pages/entry/index?module=${module}&fromShare=1` }), 80);
+      setTimeout(() => openDirectEntry(`/pages/entry/index?module=${module}&fromShare=1`), 80);
     } else if (sharePath === "history") {
-      setTimeout(() => uni.reLaunch({ url: "/pages/history/index" }), 80);
+      setTimeout(() => openDirectEntry("/pages/history/index"), 80);
     }
   },
 };

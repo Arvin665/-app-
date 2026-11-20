@@ -651,7 +651,7 @@ async function enableReminders() {
     }
     uni.showModal({
       title: "需要开启通知权限",
-      content: "请在系统设置中找到当前浏览器或商办信息资产库，开启通知权限后再回来同步提醒。",
+      content: "请在系统设置中找到当前浏览器或 Sayo Sense，开启通知权限后再回来同步提醒。",
       showCancel: false,
     });
   } catch (error) {

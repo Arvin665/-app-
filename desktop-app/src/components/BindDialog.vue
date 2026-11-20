@@ -8,7 +8,7 @@
     title="设备绑定"
   >
     <div class="bind-copy">
-      <strong>商办信息资产库</strong>
+      <strong class="bind-brand"><span>Sayo</span><span>Sense</span></strong>
       <span>输入团队邀请码，绑定后无需重复登录。</span>
     </div>
     <el-form label-position="top" @submit.prevent>
@@ -80,5 +80,19 @@ async function submit() {
 }
 .device-line {
   margin-top: 4px;
+}
+.bind-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-weight: 600;
+}
+.bind-brand span:first-child {
+  color: #222b28;
+  font-size: 20px;
+}
+.bind-brand span:last-child {
+  color: #6f7c77;
+  font-size: 11px;
 }
 </style>

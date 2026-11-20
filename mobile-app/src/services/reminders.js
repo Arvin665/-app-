@@ -172,7 +172,7 @@ export async function schedulePlanReminder(plan, { requestPermission = false } =
       notifications: [
         {
           id,
-          title: "商办信息资产库 · 计划提醒",
+          title: "Sayo Sense · 计划提醒",
           body: String(plan.content || "你有一条待办计划"),
           largeBody: String(plan.content || "你有一条待办计划"),
           summaryText: `${plan.record_date || ""} ${plan.ext_field_4 || `全天 · ${ALL_DAY_REMINDER_TIME} 提醒`}`.trim(),

@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">商办信息资产库</string>
-    <string name="title_activity_main">商办信息资产库</string>
+    <string name="app_name">Sayo Sense</string>
+    <string name="title_activity_main">Sayo Sense</string>
     <string name="package_name">com.shangban.assetlibrary</string>
     <string name="custom_url_scheme">com.shangban.assetlibrary</string>
 </resources>

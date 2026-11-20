@@ -78,5 +78,5 @@ export function getDeviceId() {
 
 export function deviceName() {
   const system = uni.getSystemInfoSync();
-  return `${system.brand || system.platform || "设备"}-${system.model || "商办资产库"}`.slice(0, 100);
+  return `${system.brand || system.platform || "设备"}-${system.model || "Sayo Sense"}`.slice(0, 100);
 }

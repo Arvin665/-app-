@@ -1,10 +1,13 @@
 <template>
-  <div v-loading.fullscreen.lock="booting" class="root-app">
+  <div class="root-app">
+    <div v-if="booting" class="splash-screen" :class="{ 'is-leaving': splashLeaving }">
+      <span>Just say it.</span>
+    </div>
     <div v-if="session" class="desktop-shell">
       <aside class="app-sidebar">
         <div class="brand-box">
-          <text class="brand-name">商办信息资产库</text>
-          <text class="brand-subtitle">团队内部 MVP 1.0</text>
+          <div class="brand-wordmark"><span class="brand-sayo">Sayo</span><span class="brand-sense">Sense</span></div>
+          <text class="brand-subtitle">Just say it.</text>
         </div>
 
         <nav class="primary-nav">
@@ -90,6 +93,7 @@ import { cacheAllModulesFromServer, flushOfflineQueue, getOfflineQueue } from ".
 import { moduleList } from "./data/modules";
 
 const booting = ref(true);
+const splashLeaving = ref(false);
 const session = ref(getSession());
 const activeModule = ref("sale");
 const view = ref("workbench");
@@ -98,6 +102,8 @@ const pendingQueue = ref(getOfflineQueue().length);
 const autoLaunch = ref(false);
 const deviceName = ref(getDeviceName());
 let timer = null;
+let splashTimer = null;
+let splashFadeTimer = null;
 let removeSyncListener = null;
 let syncBusy = false;
 
@@ -188,23 +194,72 @@ async function changeAutoLaunch(enabled) {
   }
 }
 
-onMounted(async () => {
-  await initializeDevice();
-  session.value = await refreshSession();
-  booting.value = false;
-  timer = setInterval(syncNow, 30000);
+onMounted(() => {
+  const mountedAt = performance.now();
+  initializeDevice().catch((error) => {
+    console.warn("桌面设备初始化失败", error);
+  });
+  refreshSession()
+    .then((nextSession) => {
+      session.value = nextSession;
+    })
+    .catch((error) => {
+      console.warn("身份刷新失败", error);
+    });
+  const minimumVisible = Math.max(0, 2050 - (performance.now() - mountedAt));
+  splashTimer = setTimeout(() => {
+    splashLeaving.value = true;
+    splashFadeTimer = setTimeout(() => {
+      booting.value = false;
+      timer = setInterval(syncNow, 30000);
+    }, 350);
+  }, minimumVisible);
 });
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer);
+  if (splashTimer) clearTimeout(splashTimer);
+  if (splashFadeTimer) clearTimeout(splashFadeTimer);
   removeSyncListener?.();
 });
 </script>
 
 <style scoped>
 .root-app {
+  position: relative;
   width: 100vw;
   height: 100vh;
+}
+.splash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f2f5f3;
+  opacity: 1;
+  transition: opacity 350ms ease;
+}
+.splash-screen.is-leaving {
+  opacity: 0;
+}
+.splash-screen span {
+  color: #16221f;
+  font-family: "Avenir Next", "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 36px;
+  font-weight: 560;
+  line-height: 1.2;
+  letter-spacing: 0;
+  animation: desktop-splash-arrive 620ms cubic-bezier(0.22, 1, 0.36, 1) 80ms both;
+}
+@keyframes desktop-splash-arrive {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash-screen span { animation-duration: 1ms; }
+  .splash-screen { transition-duration: 1ms; }
 }
 .desktop-shell {
   width: 100%;
@@ -229,14 +284,25 @@ onBeforeUnmount(() => {
   padding: 0 16px;
   border-bottom: 1px solid #e5e6eb;
 }
-.brand-name {
-  color: #333333;
-  font-size: 16px;
+.brand-wordmark {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.brand-sayo {
+  color: #222b28;
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 24px;
+}
+.brand-sense {
+  color: #6f7c77;
+  font-size: 11px;
   font-weight: 600;
 }
 .brand-subtitle {
-  margin-top: 5px;
-  color: #999999;
+  margin-top: 3px;
+  color: #8a9691;
   font-size: 10px;
 }
 .primary-nav,

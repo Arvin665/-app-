@@ -2,7 +2,7 @@
   <view class="home-page app-page safe-top tabbar-space">
     <view class="home-top">
       <view>
-        <view class="brand-line"><view class="brand-dot"></view><text class="brand-name">ASSET LIBRARY</text></view>
+        <view class="brand-line"><view class="brand-dot"></view><text class="brand-name">Sayo</text><text class="brand-suffix">Sense</text></view>
         <text class="home-greeting">把知道的事，留给下一次判断。</text>
       </view>
       <view class="sync-status" :class="{ pending: pendingCount > 0, error: dashboardError, loading: loadingDashboard }">
@@ -334,6 +334,8 @@ onPullDownRefresh(async () => {
 .brand-line { display: flex; align-items: center; gap: 6px; }
 .brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 .brand-name, .section-kicker { color: var(--text-muted); font-size: 10px; font-weight: 750; letter-spacing: 0.12em; }
+.brand-line .brand-name { color: var(--ink); font-size: 11px; letter-spacing: 0; }
+.brand-suffix { color: var(--text-muted); font-size: 8px; font-weight: 650; letter-spacing: 0; }
 .home-greeting { display: block; max-width: 290px; margin-top: 8px; color: var(--ink); font-size: 23px; font-weight: 760; line-height: 31px; }
 .sync-status { min-height: 30px; display: flex; align-items: center; gap: 5px; padding: 0 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-secondary); font-size: 10px; white-space: nowrap; }
 .sync-status.pending { border-color: #f0d7c0; background: var(--warning-bg); color: var(--warning); }

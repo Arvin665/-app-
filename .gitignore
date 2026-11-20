@@ -23,6 +23,7 @@ node_modules/
 dist/
 dist-electron/
 release/
+.cache/
 .design-preview/
 unpackage/
 *.log
@@ -37,3 +38,24 @@ Thumbs.db
 *.db
 *.sqlite3
 backups/
+
+# 打包产出，禁止提交
+desktop-app/build/
+desktop-app/release/
+
+# 本地环境密钥（兜底防护）
+.env
+.env.local
+.env.production
+*.jks
+*.p12
+*.p8
+*.pem
+*.key
+
+# IDE、系统缓存
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+

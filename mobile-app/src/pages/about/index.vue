@@ -5,8 +5,8 @@
     <scroll-view class="about-scroll" scroll-y>
       <view class="about-hero">
         <view class="brand-mark"><Boxes :size="30" :stroke-width="1.7" /></view>
-        <text class="hero-kicker">COMMERCIAL ASSET LIBRARY</text>
-        <text class="hero-title">商办信息资产库</text>
+        <text class="hero-kicker">SAYO SENSE</text>
+        <view class="hero-wordmark"><text class="hero-brand-main">Sayo</text><text class="hero-brand-suffix">Sense</text></view>
         <text class="hero-subtitle">先完整收下，再慢慢整理成判断。</text>
         <view class="version-tag"><text>内部原型</text><text>1.1.0</text></view>
       </view>
@@ -90,7 +90,7 @@
       </view>
 
       <view class="about-footer">
-        <text>ASSET LIBRARY · INTERNAL USE</text>
+        <text>SAYO SENSE · JUST SAY IT</text>
         <text>把零散的信息，留给下一次判断。</text>
       </view>
       <view class="bottom-space"></view>
@@ -535,5 +535,23 @@ onLoad(loadCapabilities);
 }
 .bottom-space {
   height: calc(18px + env(safe-area-inset-bottom));
+}
+.hero-wordmark {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-top: 7px;
+}
+.hero-brand-main {
+  font-size: 28px;
+  font-weight: 760;
+  line-height: 34px;
+  letter-spacing: 0;
+}
+.hero-brand-suffix {
+  color: #b9d2ca;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0;
 }
 </style>

@@ -1,5 +1,6 @@
 {
   "pages": [
+    { "path": "pages/splash/index", "style": { "navigationStyle": "custom", "disableScroll": true } },
     { "path": "pages/home/index", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
     { "path": "pages/module/index", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
     { "path": "pages/materials/index", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },

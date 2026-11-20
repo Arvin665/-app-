@@ -7,12 +7,13 @@ let mainWindow = null;
 let tray = null;
 let quitting = false;
 
-// Windows 设备用系统级稳定信息派生 32 位标识；不会上传主机名或用户名原文。
+// 使用本机稳定信息派生设备标识，不上传主机名或用户名原文。
 const rawIdentity = `${os.hostname()}|${os.userInfo().username}|${os.platform()}|asset-library-desktop`;
 const deviceId = crypto.createHash("sha256").update(rawIdentity).digest("hex").slice(0, 32);
 const deviceName = `${os.hostname()} · Windows`;
 
-const iconDataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+const appIconPath = path.join(__dirname, "assets/app-icon.png");
+const trayIconPath = path.join(__dirname, "assets/tray-icon.png");
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -20,7 +21,8 @@ function createWindow() {
     height: 980,
     minWidth: 1180,
     minHeight: 720,
-    title: "商办信息资产库",
+    title: "Sayo Sense",
+    icon: appIconPath,
     backgroundColor: "#F5F7FA",
     show: false,
     webPreferences: {
@@ -55,9 +57,9 @@ function showWindow() {
 }
 
 function createTray() {
-  const icon = nativeImage.createFromDataURL(iconDataUrl).resize({ width: 16, height: 16 });
+  const icon = nativeImage.createFromPath(trayIconPath).resize({ width: 16, height: 16 });
   tray = new Tray(icon);
-  tray.setToolTip("商办信息资产库");
+  tray.setToolTip("Sayo Sense");
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "打开主界面", click: showWindow },
@@ -79,7 +81,7 @@ app.whenReady().then(() => {
 app.on("activate", showWindow);
 app.on("before-quit", () => { quitting = true; });
 app.on("window-all-closed", () => {
-  // Windows 托盘常驻：不因关闭窗口退出进程。
+  // Windows 托盘常驻，关闭窗口时不退出进程。
 });
 
 ipcMain.handle("desktop:get-info", () => ({
@@ -101,7 +103,7 @@ ipcMain.handle("desktop:get-auto-launch", () => app.getLoginItemSettings());
 
 ipcMain.handle("desktop:notify", (_event, payload = {}) => {
   if (!Notification.isSupported()) return false;
-  const notification = new Notification({ title: payload.title || "商办信息资产库", body: payload.body || "" });
+  const notification = new Notification({ title: payload.title || "Sayo Sense", body: payload.body || "" });
   notification.on("click", showWindow);
   notification.show();
   return true;

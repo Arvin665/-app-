@@ -1,7 +1,7 @@
 /** @type {import("@capacitor/cli").CapacitorConfig} */
 const config = {
   appId: "com.shangban.assetlibrary",
-  appName: "商办信息资产库",
+  appName: "Sayo Sense",
   webDir: "dist/build/h5",
   backgroundColor: "#F2F5F3",
   server: {

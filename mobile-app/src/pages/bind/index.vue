@@ -1,7 +1,7 @@
 <template>
   <view class="bind-page app-page safe-top safe-bottom">
     <view class="brand-block">
-      <view class="brand-line"><view class="brand-dot"></view><text class="brand-name">ASSET LIBRARY</text></view>
+      <view class="brand-line"><view class="brand-dot"></view><text class="brand-name">Sayo</text><text class="brand-suffix">Sense</text></view>
       <text class="brand-title">把知道的，<br />留在自己的资料库里。</text>
       <text class="brand-desc">项目、企业、工作和灵感，先说下来，再慢慢整理。</text>
     </view>
@@ -756,5 +756,17 @@ if (session?.device_id) {
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+.brand-line .brand-name {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0;
+}
+.brand-suffix {
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0;
 }
 </style>

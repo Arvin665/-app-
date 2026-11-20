@@ -2,7 +2,9 @@
   "name": "asset-library-desktop",
   "version": "1.0.0",
   "private": true,
-  "description": "商办信息资产库 Windows 数据管理总控制台",
+  "author": "Sayo Sense",
+  "copyright": "Copyright © 2026 Sayo Sense",
+  "description": "Sayo Sense Windows 数据管理总控制台",
   "main": "electron/main.cjs",
   "scripts": {
     "dev:web": "vite --host 127.0.0.1 --port 5174",
@@ -26,9 +28,10 @@
   },
   "build": {
     "appId": "com.assetlibrary.desktop",
-    "productName": "商办信息资产库",
+    "productName": "Sayo Sense",
     "asar": true,
     "directories": {
+      "buildResources": "build",
       "output": "release"
     },
     "files": [
@@ -37,13 +40,14 @@
       "package.json"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
           "arch": ["x64"]
         }
       ],
-      "artifactName": "商办信息资产库-Setup-${version}.${ext}"
+      "artifactName": "Sayo-Sense-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,

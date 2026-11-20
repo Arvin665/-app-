@@ -1,7 +1,7 @@
 {
-  "name": "商办信息资产库",
+  "name": "Sayo Sense",
   "appid": "__UNI__A55E7B21",
-  "description": "上海商办租赁/买卖经纪团队内部信息资产库",
+  "description": "Sayo Sense - 语音驱动的上海商办业务信息库",
   "versionName": "1.0.0",
   "versionCode": "100",
   "transformPx": false,
@@ -27,12 +27,12 @@
         ]
       },
       "ios": {
-        "deploymentTarget": "14.0",
+        "deploymentTarget": "15.0",
         "privacyDescription": {
-          "NSMicrophoneUsageDescription": "用于长按语音录入商办业务信息",
-          "NSPhotoLibraryUsageDescription": "用于导入项目图片、交易凭据和文件",
-          "NSCameraUsageDescription": "用于拍摄交易凭据和项目资料",
-          "NSDocumentsFolderUsageDescription": "用于导入系统文件中的业务资料"
+          "NSMicrophoneUsageDescription": "用于在 Sayo Sense 中长按语音录入商办业务信息",
+          "NSPhotoLibraryUsageDescription": "用于在 Sayo Sense 中导入项目图片、交易凭据和文件",
+          "NSCameraUsageDescription": "用于在 Sayo Sense 中拍摄交易凭据和项目资料",
+          "NSDocumentsFolderUsageDescription": "用于在 Sayo Sense 中导入系统文件中的业务资料"
         }
       }
     },
@@ -45,7 +45,7 @@
     }
   },
   "h5": {
-    "title": "商办信息资产库",
+    "title": "Sayo Sense",
     "router": { "mode": "hash" }
   }
 }

@@ -401,7 +401,7 @@ async function enableNotificationPermission() {
   }
   uni.showModal({
     title: "需要开启系统通知",
-    content: "请在系统设置中找到当前浏览器或商办信息资产库，开启通知权限后再回来核对。",
+    content: "请在系统设置中找到当前浏览器或 Sayo Sense，开启通知权限后再回来核对。",
     showCancel: false,
   });
 }
