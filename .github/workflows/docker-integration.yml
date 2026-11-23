@@ -49,6 +49,8 @@ jobs:
         run: docker compose build
 
       - name: Start full stack
+        env:
+          DOCKER_MIRROR: ""
         run: docker compose up -d --wait --wait-timeout 900
 
       - name: Show service status
