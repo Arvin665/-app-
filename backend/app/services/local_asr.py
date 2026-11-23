@@ -43,11 +43,16 @@ def default_vosk_model_path() -> Path:
 
 
 def default_sense_voice_model_path() -> Path:
-    return (
-        Path(__file__).resolve().parents[2]
-        / "models"
-        / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
-    )
+    models_dir = Path(__file__).resolve().parents[2] / "models"
+    # 新版本优先；旧环境仍保留 2024-07-17 模型的机器继续可用。
+    for name in (
+        "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09",
+        "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
+    ):
+        candidate = models_dir / name
+        if candidate.is_dir():
+            return candidate
+    return models_dir / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09"
 
 
 def vosk_model_path() -> Path | None:

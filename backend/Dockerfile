@@ -20,7 +20,7 @@ RUN python scripts/download_vosk_model.py
 RUN mkdir -p /app/uploads
 
 ENV ASR_ENGINE=sensevoice \
-    SENSE_VOICE_MODEL_PATH=/app/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17 \
+    SENSE_VOICE_MODEL_PATH=/app/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09 \
     VOSK_MODEL_PATH=/app/models/vosk-model-small-cn-0.22
 
 EXPOSE 8000

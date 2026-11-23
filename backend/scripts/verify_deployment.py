@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 WRITE_STATE = "write"
 VERIFY_STATE = "verify"
 DEFAULT_SPEECH_WAV = Path(
-    "/app/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/test_wavs/zh.wav"
+    "/app/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09/test_wavs/zh.wav"
 )
 
 

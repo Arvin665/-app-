@@ -8,7 +8,7 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-MODEL_NAME = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
+MODEL_NAME = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09"
 MODEL_URL = (
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
     f"{MODEL_NAME}.tar.bz2"
