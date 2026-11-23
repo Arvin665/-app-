@@ -25,6 +25,9 @@ jobs:
   compose-verify:
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    env:
+      DOCKER_MIRROR: public.ecr.aws/docker
+      CADDY_IMAGE: public.ecr.aws/docker/library/caddy:2.8-alpine
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,8 +54,13 @@ jobs:
       - name: Validate Compose configuration
         run: docker compose config
 
-      - name: Replace mirror to official docker.io
-        run: sed -i 's|docker.1ms.run/|docker.io/|g' docker-compose.yml
+      - name: Verify external image sources
+        run: |
+          docker compose config | grep -E '^[[:space:]]+image:' | tee /tmp/compose-images.txt
+          if grep -q 'docker.1ms.run' /tmp/compose-images.txt; then
+            echo 'Unstable mirror is still configured in Compose.' >&2
+            exit 1
+          fi
 
       - name: Build application images
         run: docker compose build
