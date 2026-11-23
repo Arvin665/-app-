@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -231,14 +231,30 @@ def parse_date(text: str, field: str = "date", today: date | None = None) -> tup
     for token, offset in relative_days:
         if token in text:
             return (today.fromordinal(today.toordinal() + offset).isoformat(), 0.98)
-    weekday_match = re.search(r"(下)?(?:周|星期)([一二三四五六日天])", text)
+    weekday_match = re.search(
+        r"(?:(下下|下个|下|上周|本周|这周|这个|这|本)\s*)?(?:周|星期)\s*([一二三四五六日天])",
+        text,
+    )
     if weekday_match:
-        target = "一二三四五六日".index("日" if weekday_match.group(2) == "天" else weekday_match.group(2))
-        current = today.weekday()
-        offset = (target - current) % 7
-        if offset == 0:
-            offset = 7
-        return (today.fromordinal(today.toordinal() + offset).isoformat(), 0.9)
+        weekdays = "一二三四五六日"
+        weekday_token = "日" if weekday_match.group(2) == "天" else weekday_match.group(2)
+        target = weekdays.index(weekday_token)
+        qualifier = weekday_match.group(1) or ""
+        current_week_start = today - timedelta(days=today.weekday())
+        if qualifier in {"本", "这", "这个", "本周", "这周"}:
+            target_date = current_week_start + timedelta(days=target)
+        elif qualifier in {"下", "下个"}:
+            target_date = current_week_start + timedelta(days=7 + target)
+        elif qualifier == "下下":
+            target_date = current_week_start + timedelta(days=14 + target)
+        elif qualifier == "上周":
+            target_date = current_week_start + timedelta(days=target - 7)
+        else:
+            # A bare weekday means the nearest occurrence, including today.
+            offset = (target - today.weekday()) % 7
+            target_date = today + timedelta(days=offset)
+        confidence = 0.95 if qualifier else 0.9
+        return (target_date.isoformat(), confidence)
     full = re.search(
         r"(20\d{2})\s*[年/-]\s*(?:的)?\s*(\d{1,2})\s*[月/-]\s*(\d{1,2})\s*(?:日|号)?",
         text,
