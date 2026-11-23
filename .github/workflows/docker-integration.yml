@@ -48,10 +48,11 @@ jobs:
       - name: Build application images
         run: docker compose build
 
+      - name: Replace mirror to official docker.io for CI
+        run: sed -i 's|\${DOCKER_MIRROR:-docker.1ms.run}/||g' docker-compose.yml
+
       - name: Start full stack
-        run: |
-          export DOCKER_MIRROR=""
-          docker compose up -d --wait --wait-timeout 900
+        run: docker compose up -d --wait --wait-timeout 900
 
       - name: Show service status
         run: docker compose ps
