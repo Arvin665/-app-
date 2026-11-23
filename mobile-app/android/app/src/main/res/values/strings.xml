@@ -2,6 +2,6 @@
 <resources>
     <string name="app_name">Sayo Sense</string>
     <string name="title_activity_main">Sayo Sense</string>
-    <string name="package_name">com.shangban.assetlibrary</string>
-    <string name="custom_url_scheme">com.shangban.assetlibrary</string>
+    <string name="package_name">com.shcredible.sayo</string>
+    <string name="custom_url_scheme">com.shcredible.sayo</string>
 </resources>

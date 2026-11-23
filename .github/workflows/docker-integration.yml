@@ -57,8 +57,10 @@ jobs:
       - name: Build application images
         run: docker compose build
 
-      - name: Start full stack
-        run: docker compose up -d --wait --wait-timeout 900
+      # Caddy owns host ports 80/443 in production; CI verifies the web edge directly.
+
+      - name: Start application stack
+        run: docker compose up -d --wait --wait-timeout 900 mysql redis backend web
 
       - name: Show service status
         run: docker compose ps
@@ -81,10 +83,10 @@ jobs:
             --speech-wav /app/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/test_wavs/zh.wav \
             --mode write
 
-      - name: Restart stack without deleting volumes
+      - name: Restart application stack without deleting volumes
         run: |
           docker compose down
-          docker compose up -d --wait --wait-timeout 900
+          docker compose up -d --wait --wait-timeout 900 mysql redis backend web
 
       - name: Verify data survived restart
         run: |

@@ -1,4 +1,4 @@
-package com.shangban.assetlibrary;
+package com.shcredible.sayo;
 
 import com.getcapacitor.BridgeActivity;
 

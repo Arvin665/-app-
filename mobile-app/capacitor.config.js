@@ -1,6 +1,6 @@
 /** @type {import("@capacitor/cli").CapacitorConfig} */
 const config = {
-  appId: "com.shangban.assetlibrary",
+  appId: "com.shcredible.sayo",
   appName: "Sayo Sense",
   webDir: "dist/build/h5",
   backgroundColor: "#F2F5F3",
