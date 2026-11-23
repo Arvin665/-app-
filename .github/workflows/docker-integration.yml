@@ -25,8 +25,6 @@ jobs:
   compose-verify:
     runs-on: ubuntu-latest
     timeout-minutes: 75
-    env:
-      DOCKER_MIRROR: ""    # 新增这一行！CI环境强制清空镜像加速地址
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,14 +40,22 @@ jobs:
           sed -i 's#^WEB_BIND=.*#WEB_BIND=0.0.0.0#' .env
           sed -i 's#^WEB_PORT=.*#WEB_PORT=80#' .env
 
+      - name: Disable global registry mirror
+        run: |
+          sudo tee /etc/docker/daemon.json <<'EOF'
+          {}
+          EOF
+          sudo systemctl restart docker
+          sleep 5
+
       - name: Validate Compose configuration
         run: docker compose config
 
+      - name: Replace mirror to official docker.io
+        run: sed -i 's|\${DOCKER_MIRROR:-docker.1ms.run}/|docker.io/|g' docker-compose.yml
+
       - name: Build application images
         run: docker compose build
-
-      - name: Replace mirror to official docker.io for CI
-        run: sed -i 's|\${DOCKER_MIRROR:-docker.1ms.run}/||g' docker-compose.yml
 
       - name: Start full stack
         run: docker compose up -d --wait --wait-timeout 900
