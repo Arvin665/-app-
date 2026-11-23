@@ -52,7 +52,7 @@ jobs:
         run: docker compose config
 
       - name: Replace mirror to official docker.io
-        run: sed -i 's|\${DOCKER_MIRROR:-docker.1ms.run}/|docker.io/|g' docker-compose.yml
+        run: sed -i 's|docker.1ms.run/|docker.io/|g' docker-compose.yml
 
       - name: Build application images
         run: docker compose build
