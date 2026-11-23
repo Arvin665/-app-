@@ -2,7 +2,7 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 
 from app.api.deps import CurrentDevice, DbSession
 from app.core.security import new_id
@@ -72,7 +72,11 @@ def list_leases(
 
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
     records = db.scalars(
-        query.order_by(TenancyLease.start_date.desc().nullslast(), TenancyLease.update_time.desc())
+        query.order_by(
+            case((TenancyLease.start_date.is_(None), 1), else_=0),
+            TenancyLease.start_date.desc(),
+            TenancyLease.update_time.desc(),
+        )
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()

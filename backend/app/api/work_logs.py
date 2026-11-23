@@ -3,7 +3,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 
 from app.api.deps import CurrentDevice, DbSession
 from app.core.security import new_id
@@ -92,7 +92,12 @@ def list_work_logs(
 
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
     records = db.scalars(
-        query.order_by(WorkLog.record_date.desc(), WorkLog.ext_field_4.desc().nullslast(), WorkLog.update_time.desc())
+        query.order_by(
+            WorkLog.record_date.desc(),
+            case((WorkLog.ext_field_4.is_(None), 1), else_=0),
+            WorkLog.ext_field_4.desc(),
+            WorkLog.update_time.desc(),
+        )
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
@@ -114,7 +119,14 @@ def list_daily_plans(
         WorkLog.record_date == target_date,
         WorkLog.data_status == 1,
     )
-    records = list(db.scalars(query.order_by(WorkLog.ext_field_4.asc().nullsfirst())).all())
+    records = list(
+        db.scalars(
+            query.order_by(
+                case((WorkLog.ext_field_4.is_(None), 0), else_=1),
+                WorkLog.ext_field_4.asc(),
+            )
+        ).all()
+    )
     return {
         "record_date": target_date.isoformat(),
         "locked": review_exists(db, device.device_id, target_date),

@@ -59,3 +59,8 @@ Thumbs.db
 .idea/
 .vscode/
 
+# 本地下载的语音模型压缩包，只保留解压后的模型目录
+*.tar.bz2
+vosk-model-*.zip
+sherpa-onnx-sense-voice-*.tar.bz2
+
