@@ -64,3 +64,6 @@ Thumbs.db
 vosk-model-*.zip
 sherpa-onnx-sense-voice-*.tar.bz2
 
+# 服务器上的真实域名配置，仓库只保留 deploy/Caddyfile.example 模板
+Caddyfile
+

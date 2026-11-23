@@ -1,8 +1,8 @@
-# 把 app.example.com 换成已经解析到服务器公网 IP 的域名。
-# Docker 内的 Web 只监听 127.0.0.1:8080，由宿主机 Caddy 负责 HTTPS。
+# 复制到项目根目录并命名为 Caddyfile，把 app.example.com 换成已解析到服务器公网 IP 的域名。
+# 该文件由 docker compose 中的 caddy 容器挂载使用，反代目标是容器网络内的 web 服务。
 app.example.com {
     encode zstd gzip
-    reverse_proxy 127.0.0.1:8080 {
+    reverse_proxy web:80 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-Proto {scheme}
     }
