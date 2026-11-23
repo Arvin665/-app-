@@ -25,6 +25,8 @@ jobs:
   compose-verify:
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    env:
+      DOCKER_MIRROR: ""    # 新增这一行！CI环境强制清空镜像加速地址
     steps:
       - name: Checkout
         uses: actions/checkout@v4
