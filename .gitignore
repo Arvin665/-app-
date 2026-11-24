@@ -9,6 +9,8 @@ backend/uploads/
 backend/tests/test_artifacts/
 backend/models/
 mobile-app/android/keystore.properties
+.android-toolchain/
+mobile-app/android/*signing-backup*/
 mobile-app/android/*.jks
 mobile-app/android/*.keystore
 *.jks

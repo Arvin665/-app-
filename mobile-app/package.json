@@ -10,9 +10,11 @@
     "build:app": "uni build -p app",
     "native:sync": "npm run build:h5 && cap sync",
     "native:sync:android:debug": "npm run build:h5 && node scripts/cap-sync-android-debug.mjs",
+    "native:sync:android:release": "npm run build:h5 && node scripts/cap-sync-android-release.mjs",
     "native:open:android": "cap open android",
     "native:open:ios": "cap open ios",
-    "native:build:android:debug": "npm run native:sync:android:debug && cd android && gradlew.bat assembleDebug"
+    "native:build:android:debug": "npm run native:sync:android:debug && cd android && gradlew.bat assembleDebug",
+    "native:build:android:release": "node scripts/build-android.mjs --release"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.2",
